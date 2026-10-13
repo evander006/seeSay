@@ -16,8 +16,43 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell>
+    with SingleTickerProviderStateMixin {
+  static const _pages = [
+    HomePage(),
+    AssistantPage(),
+    GalleryPage(),
+    ProfilePage(),
+  ];
+
   var _index = 0;
+  var _from = 0;
+  late final AnimationController _motion;
+
+  @override
+  void initState() {
+    super.initState();
+    _motion = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: 1,
+    );
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  void _select(int index) {
+    if (index == _index) return;
+    setState(() {
+      _from = _index;
+      _index = index;
+    });
+    _motion.forward(from: 0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,18 +63,51 @@ class _MainShellState extends State<MainShell> {
       ],
       child: Scaffold(
         backgroundColor: AppColors.background,
-        body: IndexedStack(
-          index: _index,
-          children: const [
-            HomePage(),
-            AssistantPage(),
-            GalleryPage(),
-            ProfilePage(),
-          ],
+        body: AnimatedBuilder(
+          animation: _motion,
+          builder: (context, _) {
+            final t = Curves.easeOutCubic.transform(_motion.value);
+            final forward = _index >= _from;
+            return Stack(
+              children: [
+                for (var i = 0; i < _pages.length; i++)
+                  _tabLayer(i, t, forward, _pages[i]),
+              ],
+            );
+          },
         ),
         bottomNavigationBar: _ReferenceNav(
           index: _index,
-          onSelected: (index) => setState(() => _index = index),
+          onSelected: _select,
+        ),
+      ),
+    );
+  }
+
+  Widget _tabLayer(int i, double t, bool forward, Widget child) {
+    final incoming = i == _index;
+    final outgoing = i == _from && _from != _index;
+    final shown = incoming || (outgoing && t < 1);
+    final opacity = incoming
+        ? t
+        : outgoing
+        ? 1 - t
+        : 0.0;
+    final dx = incoming
+        ? (forward ? 0.045 : -0.045) * (1 - t)
+        : outgoing
+        ? (forward ? -0.045 : 0.045) * t
+        : 0.0;
+    return Offstage(
+      offstage: !shown,
+      child: IgnorePointer(
+        ignoring: !incoming,
+        child: ExcludeSemantics(
+          excluding: !incoming,
+          child: FractionalTranslation(
+            translation: Offset(dx, 0),
+            child: Opacity(opacity: opacity, child: child),
+          ),
         ),
       ),
     );

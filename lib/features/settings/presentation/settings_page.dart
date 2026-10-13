@@ -106,7 +106,13 @@ class SettingsPage extends StatelessWidget {
                       context,
                       id: 'back-home',
                       label: 'Назад на главный экран',
-                      onTap: () => context.go('/home'),
+                      onTap: () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/home');
+                        }
+                      },
                     ),
                   ],
                 );

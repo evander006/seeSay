@@ -98,7 +98,13 @@ class HistoryPage extends StatelessWidget {
                     id: 'history-back',
                     label: 'Назад к настройкам',
                     hint: 'Двойное нажатие для активации',
-                    onTap: () => context.go('/settings'),
+                    onTap: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go('/settings');
+                      }
+                    },
                     child: const DecoratedBox(
                       decoration: BoxDecoration(
                         border: Border(

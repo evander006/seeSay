@@ -33,7 +33,7 @@ void main() {
     expect(find.text('Что вокруг'), findsOneWidget);
     expect(find.text('Текст'), findsOneWidget);
     expect(find.text('Повтор'), findsOneWidget);
-    expect(find.text('Демонстрационный режим'), findsOneWidget);
+    expect(find.text('Значения имитации не приходят с очков.'), findsOneWidget);
 
     final photo = tester.getSize(find.byKey(const Key('action-photo')));
     expect(photo.height, greaterThanOrEqualTo(72));

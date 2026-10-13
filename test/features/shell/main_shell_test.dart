@@ -59,14 +59,17 @@ void main() {
     expect(find.text('Галерея'), findsOneWidget);
     expect(find.text('Профиль'), findsOneWidget);
     expect(find.text('Очки не подключены'), findsOneWidget);
-    expect(find.text('Демонстрационный режим'), findsWidgets);
+    expect(
+      find.text('Значения имитации не приходят с очков.'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Галерея'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.textContaining('Снимков пока нет'), findsOneWidget);
 
     await tester.tap(find.text('AI-помощник'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'привет');
     await tester.tap(find.byTooltip('Отправить'));
     await tester.pump();
@@ -79,7 +82,7 @@ void main() {
     await tester.pumpWidget(_shell(harness));
     await tester.pump();
     await tester.tap(find.text('Профиль'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(
       find.text('Событий пока нет.', skipOffstage: false),
       findsOneWidget,

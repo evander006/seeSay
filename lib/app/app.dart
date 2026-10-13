@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -62,15 +63,22 @@ GoRouter buildRouter() {
       GoRoute(path: '/home', builder: (context, state) => const MainShell()),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => SettingsPage(
-          onOpenSystemSettings: () => getIt<PermissionService>().openSettings(),
+        pageBuilder: (context, state) => CupertinoPage(
+          key: state.pageKey,
+          child: SettingsPage(
+            onOpenSystemSettings: () =>
+                getIt<PermissionService>().openSettings(),
+          ),
         ),
       ),
       GoRoute(
         path: '/history',
-        builder: (context, state) => BlocProvider(
-          create: (_) => getIt<HistoryCubit>()..load(),
-          child: const HistoryPage(),
+        pageBuilder: (context, state) => CupertinoPage(
+          key: state.pageKey,
+          child: BlocProvider(
+            create: (_) => getIt<HistoryCubit>()..load(),
+            child: const HistoryPage(),
+          ),
         ),
       ),
     ],

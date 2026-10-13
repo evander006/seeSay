@@ -25,10 +25,26 @@ class GalleryPage extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
             ),
             Expanded(
-              child: selected != null
-                  ? _Detail(item: selected)
-                  : state.items.isEmpty
-                  ? const Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 360),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, animation) {
+                  final offset = Tween<Offset>(
+                    begin: const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(animation);
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(position: offset, child: child),
+                  );
+                },
+                child: selected != null
+                    ? _Detail(key: ValueKey(selected.id), item: selected)
+                    : state.items.isEmpty
+                  ? const KeyedSubtree(
+                      key: ValueKey('gallery-empty'),
+                      child: Center(
                       child: Padding(
                         padding: EdgeInsets.all(24),
                         child: DecoratedBox(
@@ -66,8 +82,10 @@ class GalleryPage extends StatelessWidget {
                           ),
                         ),
                       ),
-                    )
+                    ),
+                  )
                   : ListView.separated(
+                      key: const ValueKey('gallery-list'),
                       padding: const EdgeInsets.all(16),
                       itemCount: state.items.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -120,6 +138,7 @@ class GalleryPage extends StatelessWidget {
                         );
                       },
                     ),
+              ),
             ),
           ],
         ),
@@ -129,7 +148,7 @@ class GalleryPage extends StatelessWidget {
 }
 
 class _Detail extends StatelessWidget {
-  const _Detail({required this.item});
+  const _Detail({super.key, required this.item});
 
   final SavedResponse item;
 
