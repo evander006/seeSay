@@ -26,10 +26,16 @@ class GeolocatorLocationService implements LocationService {
       if (!allowed) return null;
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (!enabled) return null;
+      // A fix from the last minute is good enough and comes at once.
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null &&
+          DateTime.now().difference(last.timestamp) < const Duration(minutes: 1)) {
+        return GeoPoint(latitude: last.latitude, longitude: last.longitude);
+      }
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-          timeLimit: Duration(seconds: 3),
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 4),
         ),
       );
       return GeoPoint(

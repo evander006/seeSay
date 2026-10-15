@@ -12,10 +12,15 @@ class GlassesReply {
     required this.action,
     required this.transcript,
     required this.serverMs,
+    this.destinationLat,
+    this.destinationLon,
   });
 
   factory GlassesReply.fromJson(Map<String, dynamic> json) {
+    final destination = json['destination'];
     return GlassesReply(
+      destinationLat: destination is Map ? (destination['lat'] as num?)?.toDouble() : null,
+      destinationLon: destination is Map ? (destination['lon'] as num?)?.toDouble() : null,
       status: json['status'] as String? ?? 'error',
       text: (json['text_response'] as String? ?? '').trim(),
       action: json['action'] as String? ?? 'speak',
@@ -29,6 +34,10 @@ class GlassesReply {
   final String action;
   final String transcript;
   final int serverMs;
+
+  /// Where a walking route leads (action `navigate`).
+  final double? destinationLat;
+  final double? destinationLon;
 }
 
 /// Server side of the glasses buttons (backend: src/api/v1/glasses.py).
@@ -37,14 +46,18 @@ class GlassesApi {
 
   final ApiClient _client;
 
-  /// The question as Opus packets from the glasses mic.
-  Future<GlassesReply> voice(File audio) {
+  /// The question as Opus packets from the glasses mic, with the phone GPS when known.
+  Future<GlassesReply> voice(File audio, {double? latitude, double? longitude}) {
     return _post('/api/v1/glasses/voice', {
       'audio': MultipartFile.fromFileSync(
         audio.path,
         filename: 'voice.opus',
         contentType: DioMediaType('application', 'octet-stream'),
       ),
+      if (latitude != null && longitude != null) ...{
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+      },
     });
   }
 

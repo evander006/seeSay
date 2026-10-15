@@ -174,6 +174,26 @@ class GlassesChannel {
   Future<String?> exportLog() =>
       _methods.invokeMethod<String>(GlassesProtocol.exportLog);
 
+  /// Walking route in Yandex Maps; false when Android did not let it open.
+  Future<bool> openRoute({
+    required double lat,
+    required double lon,
+    double? fromLat,
+    double? fromLon,
+  }) async {
+    try {
+      final value = await _methods.invokeMethod<bool>(GlassesProtocol.openRoute, {
+        'lat': lat,
+        'lon': lon,
+        'fromLat': fromLat,
+        'fromLon': fromLon,
+      });
+      return value ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
   Future<String> connectionState() async {
     final value = await _methods.invokeMethod<String>(
       GlassesProtocol.getConnectionState,

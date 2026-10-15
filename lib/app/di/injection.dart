@@ -198,6 +198,7 @@ Future<void> configureDependencies({AppConfig? config}) async {
         stopSpeech: getIt<StopSpeech>(),
         saveLastResponse: getIt<SaveLastResponse>(),
         frames: getIt<FrameStore>(),
+        location: getIt<LocationService>(),
         logger: logger,
       ),
     )

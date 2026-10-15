@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:seesay/core/accessibility/accessibility_audio_queue.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
 import 'package:seesay/core/errors/failure_mapper.dart';
+import 'package:seesay/core/location/location_service.dart';
 import 'package:seesay/core/logging/app_logger.dart';
 import 'package:seesay/core/platform/glasses_channel.dart';
 import 'package:seesay/core/storage/frame_store.dart';
@@ -31,6 +32,7 @@ class GlassesActionCoordinator {
     required this._stopSpeech,
     required this._saveLastResponse,
     required this._frames,
+    required this._location,
     required this._logger,
   });
 
@@ -41,7 +43,11 @@ class GlassesActionCoordinator {
   final StopSpeech _stopSpeech;
   final SaveLastResponse _saveLastResponse;
   final FrameStore _frames;
+  final LocationService _location;
   final AppLogger _logger;
+
+  /// GPS is looked up while the user speaks, so it is ready when the question ends.
+  Future<GeoPoint?>? _position;
 
   static const _pitchPresses = 3;
   // The glasses take one photo at a time (~3 s each), so 3 quick presses arrive over ~6 s.
@@ -78,6 +84,7 @@ class GlassesActionCoordinator {
           if (!_pitchPlaying) await _stopSpeech();
         case VoiceStateChanged(:final state, :final reason):
           _log('voice $state${reason == null ? '' : ' ($reason)'}');
+          if (state == 'listening') _position = _location.currentPosition();
         case VoiceCaptured():
           await _onVoice(event);
         case GlassesPhotoReceived():
@@ -103,9 +110,18 @@ class GlassesActionCoordinator {
       'voice captured: ${voice.packets} packets, ${voice.durationMs} ms, '
       'end: ${voice.reason}',
     );
+    final point = await (_position ?? _location.currentPosition()).timeout(
+      const Duration(milliseconds: 1500),
+      onTimeout: () => null,
+    );
+    _position = null;
     final GlassesReply reply;
     try {
-      reply = await _api.voice(File(voice.path));
+      reply = await _api.voice(
+        File(voice.path),
+        latitude: point?.latitude,
+        longitude: point?.longitude,
+      );
     } on Object catch (error) {
       await _fail('voice upload', error, generation);
       return;
@@ -120,6 +136,20 @@ class GlassesActionCoordinator {
         await playPitch(reason: 'voice «${reply.transcript}»');
       case 'need_image':
         await _answerWithVoicePhoto(reply.transcript, generation, watch);
+      case 'navigate':
+        final lat = reply.destinationLat;
+        final lon = reply.destinationLon;
+        if (lat != null && lon != null) {
+          final opened = await _channel.openRoute(
+            lat: lat,
+            lon: lon,
+            fromLat: point?.latitude,
+            fromLon: point?.longitude,
+          );
+          _log('route in Yandex Maps: ${opened ? 'opened' : 'not opened'}');
+        }
+        await _say(reply.text, generation);
+        await _remember(reply.transcript, reply.text, null);
       default:
         await _say(reply.text, generation);
         if (reply.action == 'speak') {

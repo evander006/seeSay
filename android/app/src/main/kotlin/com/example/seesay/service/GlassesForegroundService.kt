@@ -74,7 +74,11 @@ class GlassesForegroundService : Service(), BleManager.Listener {
             return
         }
         val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        val withCamera = if (granted(Manifest.permission.CAMERA)) base or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else base
+        var withCamera = if (granted(Manifest.permission.CAMERA)) base or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else base
+        // Location type: «где я» and routes need GPS while the screen is off.
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            withCamera = withCamera or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
         try {
             startForeground(NOTIFICATION_ID, notice, withCamera)
         } catch (error: SecurityException) {

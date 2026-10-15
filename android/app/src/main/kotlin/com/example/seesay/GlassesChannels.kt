@@ -84,6 +84,15 @@ object GlassesChannels {
                     result.success(null)
                 }
                 "exportLog" -> result.success(DiagLog.export(context).absolutePath)
+                "openRoute" -> result.success(
+                    openRoute(
+                        context,
+                        call.argument<Double>("fromLat"),
+                        call.argument<Double>("fromLon"),
+                        call.argument<Double>("lat") ?: 0.0,
+                        call.argument<Double>("lon") ?: 0.0,
+                    ),
+                )
                 "getConnectionState" -> result.success(GlassesRuntime.connectionState)
                 "isBluetoothEnabled" -> {
                     val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
@@ -115,6 +124,23 @@ object GlassesChannels {
                 }
             },
         )
+    }
+
+    /** Pedestrian route in Yandex Maps (the app, else the website). Android may refuse it while the
+     *  screen is locked; the spoken directions do not depend on it. */
+    private fun openRoute(context: Context, fromLat: Double?, fromLon: Double?, lat: Double, lon: Double): Boolean {
+        val from = if (fromLat != null && fromLon != null) "$fromLat,$fromLon" else ""
+        val query = "rtext=$from~$lat,$lon&rtt=pd"
+        for (uri in listOf("yandexmaps://maps.yandex.ru/?$query", "https://yandex.ru/maps/?$query")) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                DiagLog.i(TAG, "route opened: $uri")
+                return true
+            } catch (error: Exception) {
+                DiagLog.w(TAG, "route not opened ($uri): ${error.javaClass.simpleName}")
+            }
+        }
+        return false
     }
 
     private fun isBackgroundUnrestricted(context: Context): Boolean {

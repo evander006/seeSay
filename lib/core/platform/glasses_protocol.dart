@@ -30,6 +30,7 @@ abstract final class GlassesProtocol {
   static const stopPitch = 'stopPitch';
   static const diagLog = 'diagLog';
   static const exportLog = 'exportLog';
+  static const openRoute = 'openRoute';
 
   static const serviceUuid = '0000fa00-0000-1000-8000-00805f9b34fb';
   static const notifyCharacteristicUuid =

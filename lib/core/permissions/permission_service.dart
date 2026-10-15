@@ -14,6 +14,8 @@ class PermissionService {
       Permission.notification,
       // Asked here, while the screen is open: photos are later taken in background.
       Permission.camera,
+      // «Где я» and walking routes from the glasses use the phone GPS.
+      Permission.locationWhenInUse,
     ].request();
     final bluetoothOk =
         _ok(statuses[Permission.bluetoothScan]) &&
