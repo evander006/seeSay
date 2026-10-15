@@ -17,9 +17,10 @@ import 'package:seesay/features/vision/domain/response_use_cases.dart';
 /// * black ×1 + a spoken question → assistant with memory. The voice goes to the server; if the
 ///   question is about what the user sees, the photo the glasses take right after the question
 ///   is sent too (action `need_image`).
-/// * black ×2 → the glasses send a photo themselves → «what is in front of me».
-/// * red ×3 within 10 s → the competitors pitch at full volume (one or two presses only take
-///   the glasses' own photo/video, so a stray press does nothing here).
+/// * black ×2 → the competitors pitch at full volume, at once (the glasses report a double press
+///   as one event, 120A 02; the photo they take with it is ignored).
+/// * red ×3 within 10 s → the same pitch, as a backup (the glasses take one photo at a time,
+///   so the presses arrive ~3 s apart; one or two presses do nothing here).
 /// * temple tap (play/pause) → stop speaking.
 class GlassesActionCoordinator {
   GlassesActionCoordinator({
@@ -69,6 +70,9 @@ class GlassesActionCoordinator {
       switch (event) {
         case GlassesButtonPressed(button: 'red'):
           _onRed();
+        case GlassesButtonPressed(button: 'black', kind: 'double'):
+          _log('black button double');
+          unawaited(playPitch(reason: 'black ×2'));
         case GlassesButtonPressed(button: 'black', :final kind):
           _log('black button $kind');
           if (!_pitchPlaying) await _stopSpeech();
@@ -158,6 +162,8 @@ class GlassesActionCoordinator {
       if (waiting != null && !waiting.isCompleted) waiting.complete(file);
       return;
     }
+    // Black ×2 starts the pitch; the photo the glasses take with it is not needed.
+    if (event.reason == 'recognition') return;
     await _frame(file, null, ++_generation);
   }
 

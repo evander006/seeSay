@@ -416,7 +416,7 @@ class _DemoSection extends StatelessWidget {
           _LinkRow(
             icon: Icons.campaign_outlined,
             title: 'Рассказ про конкурентов',
-            subtitle: 'На очках: красная кнопка 3 раза (за 10 секунд)',
+            subtitle: 'На очках: чёрная кнопка 2 раза',
             onTap: () => run(() async {
               await coordinator.playPitch(reason: 'settings');
               return 'Рассказ закончен';
@@ -426,7 +426,7 @@ class _DemoSection extends StatelessWidget {
           _LinkRow(
             icon: Icons.photo_camera_outlined,
             title: 'Снимок с очков',
-            subtitle: 'На очках: чёрная кнопка 2 раза',
+            subtitle: 'На очках: чёрная ×1 и «Что передо мной?»',
             onTap: () => run(() async {
               final ok = await coordinator.requestFrame();
               return ok ? 'Очки снимают, ответ прозвучит в очках' : 'Очки не подключены';
