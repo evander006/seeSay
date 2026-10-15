@@ -10,6 +10,7 @@ import 'package:seesay/features/gallery/presentation/gallery_cubit.dart';
 import 'package:seesay/features/gallery/presentation/gallery_page.dart';
 import 'package:seesay/features/home/presentation/home_page.dart';
 import 'package:seesay/features/settings/presentation/settings_page.dart';
+import 'package:seesay/features/translator/presentation/translator_page.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -36,6 +37,7 @@ class _MainShellState extends State<MainShell>
       const HomePage(),
       const AssistantPage(),
       const GalleryPage(),
+      const TranslatorPage(),
       SettingsPage(
         background: getIt<BackgroundAccess>(),
         onOpenSystemSettings: () => getIt<PermissionService>().openSettings(),
@@ -113,6 +115,11 @@ class _MainShellState extends State<MainShell>
                   color: AppColors.accent,
                 ),
                 label: 'Галерея',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.translate_outlined),
+                selectedIcon: Icon(Icons.translate_rounded, color: AppColors.accent),
+                label: 'Перевод',
               ),
               NavigationDestination(
                 icon: Icon(Icons.settings_outlined),

@@ -19,6 +19,7 @@ class SeeSayApplication : Application() {
         DiagLog.i("App", "process start")
         val engine = FlutterEngine(this)
         GlassesChannels.attach(this, engine)
+        com.example.seesay.translator.TranslatorChannels.attach(this, engine)
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
     }

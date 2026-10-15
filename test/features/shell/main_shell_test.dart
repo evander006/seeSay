@@ -60,7 +60,7 @@ void main() {
     );
     await tester.pump();
 
-    for (final label in ['Главная', 'Помощник', 'Галерея', 'Настройки']) {
+    for (final label in ['Главная', 'Помощник', 'Галерея', 'Перевод', 'Настройки']) {
       expect(find.text(label), findsOneWidget);
     }
     expect(find.text('Очки не подключены'), findsOneWidget);
@@ -72,6 +72,10 @@ void main() {
     await tester.tap(find.text('Помощник'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Здесь будут ваши вопросы'), findsOneWidget);
+
+    await tester.tap(find.text('Перевод'));
+    await tester.pumpAndSettle();
+    expect(find.text('Начать перевод'), findsOneWidget);
 
     await tester.tap(find.text('Настройки'));
     await tester.pumpAndSettle();
