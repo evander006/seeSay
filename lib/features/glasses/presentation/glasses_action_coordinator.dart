@@ -18,7 +18,7 @@ import 'package:seesay/features/vision/domain/response_use_cases.dart';
 ///   question is about what the user sees, the photo the glasses take right after the question
 ///   is sent too (action `need_image`).
 /// * black ×2 → the glasses send a photo themselves → «what is in front of me».
-/// * red ×3 within 3 s → the competitors pitch at full volume (one or two presses only take
+/// * red ×3 within 10 s → the competitors pitch at full volume (one or two presses only take
 ///   the glasses' own photo/video, so a stray press does nothing here).
 /// * temple tap (play/pause) → stop speaking.
 class GlassesActionCoordinator {
@@ -43,7 +43,8 @@ class GlassesActionCoordinator {
   final AppLogger _logger;
 
   static const _pitchPresses = 3;
-  static const _pitchWindow = Duration(seconds: 3);
+  // The glasses take one photo at a time (~3 s each), so 3 quick presses arrive over ~6 s.
+  static const _pitchWindow = Duration(seconds: 10);
   static const _photoWait = Duration(seconds: 4);
 
   StreamSubscription<GlassesEvent>? _subscription;

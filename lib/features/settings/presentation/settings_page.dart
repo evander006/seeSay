@@ -416,7 +416,7 @@ class _DemoSection extends StatelessWidget {
           _LinkRow(
             icon: Icons.campaign_outlined,
             title: 'Рассказ про конкурентов',
-            subtitle: 'На очках: красная кнопка 3 раза за 3 секунды',
+            subtitle: 'На очках: красная кнопка 3 раза (за 10 секунд)',
             onTap: () => run(() async {
               await coordinator.playPitch(reason: 'settings');
               return 'Рассказ закончен';

@@ -43,6 +43,8 @@ class GlassesSession(
     private var speechPackets = 0
     private var quietAfterSpeech = 0
     private var noiseFloor = Int.MAX_VALUE
+    private var loudnessCount = 0
+    private val loudnessTrace = StringBuilder()
     private var photoReason: String? = null
     private var photoRequestedAt = 0L
     private var lastBattery = -1
@@ -140,6 +142,8 @@ class GlassesSession(
         speechPackets = 0
         quietAfterSpeech = 0
         noiseFloor = Int.MAX_VALUE
+        loudnessCount = 0
+        loudnessTrace.setLength(0)
         voiceStartedAt = SystemClock.elapsedRealtime()
         GlassesRuntime.emit(mapOf("event" to "voiceState", "state" to "listening"))
         val token = voiceToken
@@ -194,18 +198,25 @@ class GlassesSession(
 
     private fun onLoudness(rms: Int, token: Int) {
         if (token != voiceToken || voice == null) return
-        if (voicePackets <= 3) noiseFloor = minOf(noiseFloor, rms)
-        // 4 × the background noise of the first packets, kept within sane bounds (a quiet mic, a loud room).
-        val threshold = ((noiseFloor.takeIf { it != Int.MAX_VALUE } ?: 0) * 4).coerceIn(SPEECH_RMS_MIN, SPEECH_RMS_MAX)
+        loudnessCount += 1
+        if (loudnessTrace.length < 600) loudnessTrace.append(rms).append(' ')
+        // Background = the quietest packet so far (pauses between words), not the first packets:
+        // the user often starts talking at once, and then the first packets are already speech.
+        if (loudnessCount > 1 && rms > 0) noiseFloor = minOf(noiseFloor, rms)
+        val floor = noiseFloor.takeIf { it != Int.MAX_VALUE } ?: 0
+        val threshold = (floor * 3).coerceIn(SPEECH_RMS_MIN, SPEECH_RMS_MAX)
         if (rms >= threshold) {
             speechPackets += 1
             quietAfterSpeech = 0
-        } else if (speechPackets >= 2) {
+        } else if (speechPackets >= MIN_SPEECH_PACKETS) {
             quietAfterSpeech += 1
-            if (quietAfterSpeech >= QUIET_PACKETS_TO_END) finishVoice("silence after speech (rms $rms < $threshold)")
+            val long = SystemClock.elapsedRealtime() - voiceStartedAt >= MIN_VOICE_MS
+            if (quietAfterSpeech >= QUIET_PACKETS_TO_END && long) {
+                finishVoice("silence after speech (rms $rms < $threshold, floor $floor)")
+            }
         }
         if (speechPackets == 0 && SystemClock.elapsedRealtime() - voiceStartedAt > NO_SPEECH_MS) {
-            finishVoice("no speech heard")
+            finishVoice("no speech heard (floor $floor)")
         }
     }
 
@@ -217,6 +228,7 @@ class GlassesSession(
         val ms = SystemClock.elapsedRealtime() - voiceStartedAt
         if (stopGlasses && linked) send(BkProtocol.STOP_RECORD, byteArrayOf(0))
         DiagLog.i(TAG, "voice end: $reason; $voicePackets packets, ${buffer.size()} B, $ms ms, speech packets $speechPackets")
+        DiagLog.i(TAG, "voice loudness: $loudnessTrace")
         if (voicePackets == 0) {
             GlassesRuntime.emit(mapOf("event" to "voiceState", "state" to "idle", "reason" to reason))
             return
@@ -301,8 +313,10 @@ class GlassesSession(
         private const val NO_VOICE_MS = 4_000L
         private const val NO_SPEECH_MS = 6_000L
         private const val MAX_VOICE_MS = 10_000L
-        private const val SPEECH_RMS_MIN = 250
-        private const val SPEECH_RMS_MAX = 1200
-        private const val QUIET_PACKETS_TO_END = 10 // 10 × 80 ms of quiet after speech
+        private const val SPEECH_RMS_MIN = 120
+        private const val SPEECH_RMS_MAX = 900
+        private const val MIN_SPEECH_PACKETS = 3
+        private const val QUIET_PACKETS_TO_END = 15 // 15 × 80 ms = 1.2 s of quiet after speech
+        private const val MIN_VOICE_MS = 2_000L // from the Allow: the voice starts ~0.5 s later
     }
 }
