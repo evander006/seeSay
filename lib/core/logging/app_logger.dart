@@ -3,6 +3,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 class AppLogger {
+  AppLogger({this.sink});
+
+  /// Also writes each line to the app's diagnostic log file (see GlassesChannel.diagLog).
+  final void Function(String level, String line)? sink;
+
   void info(String message, {String? screen, String? action}) {
     _write('info', message, screen: screen, action: action);
   }
@@ -31,6 +36,12 @@ class AppLogger {
       'error': _safe(error),
     };
     debugPrint(jsonEncode(entry));
+    final where = [screen, action].whereType<String>().join(' ');
+    final safe = _safe(error);
+    sink?.call(
+      level == 'error' ? 'E' : (level == 'warning' ? 'W' : 'I'),
+      '$message${where.isEmpty ? '' : ' [$where]'}${safe == null ? '' : ' error=$safe'}',
+    );
   }
 
   String? _safe(Object? error) {

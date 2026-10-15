@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:seesay/app/di/injection.dart';
 import 'package:seesay/app/theme/app_theme.dart';
+import 'package:seesay/core/permissions/permission_service.dart';
+import 'package:seesay/core/platform/background_access.dart';
 import 'package:seesay/features/assistant/presentation/assistant_cubit.dart';
 import 'package:seesay/features/assistant/presentation/assistant_page.dart';
 import 'package:seesay/features/gallery/presentation/gallery_cubit.dart';
 import 'package:seesay/features/gallery/presentation/gallery_page.dart';
 import 'package:seesay/features/home/presentation/home_page.dart';
-import 'package:seesay/features/profile/presentation/profile_page.dart';
+import 'package:seesay/features/settings/presentation/settings_page.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -18,40 +20,39 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell>
     with SingleTickerProviderStateMixin {
-  static const _pages = [
-    HomePage(),
-    AssistantPage(),
-    GalleryPage(),
-    ProfilePage(),
-  ];
-
   var _index = 0;
-  var _from = 0;
-  late final AnimationController _motion;
+  late final AnimationController _fade;
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
-    _motion = AnimationController(
+    _fade = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 180),
       value: 1,
     );
+    _pages = [
+      const HomePage(),
+      const AssistantPage(),
+      const GalleryPage(),
+      SettingsPage(
+        background: getIt<BackgroundAccess>(),
+        onOpenSystemSettings: () => getIt<PermissionService>().openSettings(),
+      ),
+    ];
   }
 
   @override
   void dispose() {
-    _motion.dispose();
+    _fade.dispose();
     super.dispose();
   }
 
   void _select(int index) {
     if (index == _index) return;
-    setState(() {
-      _from = _index;
-      _index = index;
-    });
-    _motion.forward(from: 0);
+    setState(() => _index = index);
+    _fade.forward(from: 0);
   }
 
   @override
@@ -61,140 +62,66 @@ class _MainShellState extends State<MainShell>
         BlocProvider(create: (_) => getIt<AssistantCubit>()..load()),
         BlocProvider(create: (_) => getIt<GalleryCubit>()..load()),
       ],
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        body: AnimatedBuilder(
-          animation: _motion,
-          builder: (context, _) {
-            final t = Curves.easeOutCubic.transform(_motion.value);
-            final forward = _index >= _from;
-            return Stack(
-              children: [
-                for (var i = 0; i < _pages.length; i++)
-                  _tabLayer(i, t, forward, _pages[i]),
-              ],
-            );
-          },
-        ),
-        bottomNavigationBar: _ReferenceNav(
-          index: _index,
-          onSelected: _select,
-        ),
-      ),
-    );
-  }
-
-  Widget _tabLayer(int i, double t, bool forward, Widget child) {
-    final incoming = i == _index;
-    final outgoing = i == _from && _from != _index;
-    final shown = incoming || (outgoing && t < 1);
-    final opacity = incoming
-        ? t
-        : outgoing
-        ? 1 - t
-        : 0.0;
-    final dx = incoming
-        ? (forward ? 0.045 : -0.045) * (1 - t)
-        : outgoing
-        ? (forward ? -0.045 : 0.045) * t
-        : 0.0;
-    return Offstage(
-      offstage: !shown,
-      child: IgnorePointer(
-        ignoring: !incoming,
-        child: ExcludeSemantics(
-          excluding: !incoming,
-          child: FractionalTranslation(
-            translation: Offset(dx, 0),
-            child: Opacity(opacity: opacity, child: child),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReferenceNav extends StatelessWidget {
-  const _ReferenceNav({required this.index, required this.onSelected});
-
-  final int index;
-  final ValueChanged<int> onSelected;
-
-  static const _items = [
-    (icon: Icons.home_outlined, selected: Icons.home_rounded, label: 'Главная'),
-    (
-      icon: Icons.auto_awesome_outlined,
-      selected: Icons.auto_awesome,
-      label: 'AI-помощник',
-    ),
-    (
-      icon: Icons.photo_library_outlined,
-      selected: Icons.photo_library_rounded,
-      label: 'Галерея',
-    ),
-    (
-      icon: Icons.more_horiz_rounded,
-      selected: Icons.more_horiz_rounded,
-      label: 'Профиль',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.card,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Color(0xFFE6E8EC))),
-        ),
-        child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 64,
-          child: Row(
+      child: PopScope(
+        canPop: _index == 0,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _select(0);
+        },
+        child: Scaffold(
+          backgroundColor: AppColors.background,
+          body: Stack(
             children: [
-              for (var i = 0; i < _items.length; i++)
-                Expanded(
-                  child: Semantics(
-                    button: true,
-                    selected: index == i,
-                    label: _items[i].label,
-                    child: InkWell(
-                      onTap: () => onSelected(i),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            index == i ? _items[i].selected : _items[i].icon,
-                            color: index == i
-                                ? AppColors.accent
-                                : AppColors.muted,
-                            size: 26,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _items[i].label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: index == i
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: index == i
-                                  ? AppColors.accent
-                                  : AppColors.muted,
-                            ),
-                          ),
-                        ],
+              for (var i = 0; i < _pages.length; i++)
+                Offstage(
+                  offstage: i != _index,
+                  child: TickerMode(
+                    enabled: i == _index,
+                    child: ExcludeSemantics(
+                      excluding: i != _index,
+                      child: FadeTransition(
+                        opacity: i == _index ? _fade : kAlwaysCompleteAnimation,
+                        child: _pages[i],
                       ),
                     ),
                   ),
                 ),
             ],
           ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: _select,
+            backgroundColor: AppColors.card,
+            surfaceTintColor: Colors.transparent,
+            indicatorColor: const Color(0xFFDCE8FF),
+            height: 68,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded, color: AppColors.accent),
+                label: 'Главная',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.forum_outlined),
+                selectedIcon: Icon(Icons.forum_rounded, color: AppColors.accent),
+                label: 'Помощник',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.photo_library_outlined),
+                selectedIcon: Icon(
+                  Icons.photo_library_rounded,
+                  color: AppColors.accent,
+                ),
+                label: 'Галерея',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded, color: AppColors.accent),
+                label: 'Настройки',
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

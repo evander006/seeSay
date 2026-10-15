@@ -16,6 +16,9 @@ abstract final class SpeechMessages {
   static const busy = 'Анализ уже выполняется.';
   static const permissionDenied = 'Нет необходимого разрешения.';
   static const apiUnavailable = 'Сервис анализа временно недоступен.';
+  static const serverUnreachable =
+      'Сервер не отвечает. Проверьте адрес сервера в настройках.';
+  static const unexpectedError = 'Что-то пошло не так. Попробуйте ещё раз.';
   static const cameraFailed = 'Не удалось сделать снимок.';
   static const speechFailed = 'Не удалось озвучить ответ.';
   static const glassesLinkFailed = 'Не удалось подключиться к очкам.';

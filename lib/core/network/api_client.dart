@@ -2,11 +2,16 @@ import 'package:dio/dio.dart';
 import 'package:seesay/core/logging/app_logger.dart';
 
 class ApiClient {
-  ApiClient({required String baseUrl, required AppLogger logger})
-    : dio = Dio(
+  ApiClient({
+    required String baseUrl,
+    required AppLogger logger,
+    String? deviceId,
+  }) : dio = Dio(
         BaseOptions(
           baseUrl: baseUrl,
-          connectTimeout: const Duration(seconds: 15),
+          // The server keeps memory per device: «запомни …» belongs to this phone.
+          headers: {'X-Device-Id': ?deviceId},
+          connectTimeout: const Duration(seconds: 8),
           sendTimeout: const Duration(seconds: 30),
           receiveTimeout: const Duration(seconds: 60),
         ),
@@ -41,4 +46,10 @@ class ApiClient {
   }
 
   final Dio dio;
+
+  String get baseUrl => dio.options.baseUrl;
+
+  set baseUrl(String value) => dio.options.baseUrl = value;
+
+  set deviceId(String value) => dio.options.headers['X-Device-Id'] = value;
 }

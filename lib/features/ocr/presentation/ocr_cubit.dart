@@ -4,13 +4,11 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:seesay/core/accessibility/accessibility_audio_queue.dart';
 import 'package:seesay/core/accessibility/haptic_service.dart';
-import 'package:seesay/core/accessibility/speech_messages.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
 import 'package:seesay/core/camera/capture_gate.dart';
-import 'package:seesay/core/errors/app_exception.dart';
 import 'package:seesay/core/errors/failure_mapper.dart';
 import 'package:seesay/core/logging/app_logger.dart';
-import 'package:seesay/core/network/connectivity_service.dart';
+import 'package:seesay/core/storage/frame_store.dart';
 import 'package:seesay/core/storage/saved_response.dart';
 import 'package:seesay/features/vision/domain/analyze_frame.dart';
 import 'package:seesay/features/vision/domain/capture_frame.dart';
@@ -49,7 +47,7 @@ class OcrCubit extends Cubit<OcrState> {
     required this._readText,
     required this._saveLastResponse,
     required this._speakText,
-    required this._connectivity,
+    required this._frames,
     required this._feedback,
     required this._gate,
     required this._logger,
@@ -59,7 +57,7 @@ class OcrCubit extends Cubit<OcrState> {
   final ReadText _readText;
   final SaveLastResponse _saveLastResponse;
   final SpeakText _speakText;
-  final ConnectivityService _connectivity;
+  final FrameStore _frames;
   final SystemFeedback _feedback;
   final CaptureGate _gate;
   final AppLogger _logger;
@@ -78,19 +76,18 @@ class OcrCubit extends Cubit<OcrState> {
       await _feedback.haptic(HapticKind.capture);
       _logger.info('camera capture', screen: 'home', action: 'ocr');
       frame = await _captureFrame();
-      if (!await _connectivity.isOnline) {
-        throw NetworkException(SpeechMessages.networkUnavailable);
-      }
       _emit(state.copyWith(status: OcrStatus.uploading));
       _emit(state.copyWith(status: OcrStatus.processing));
       _logger.info('API request', screen: 'home', action: 'read-text');
       final result = await _readText(image: frame);
+      final id = DateTime.now().microsecondsSinceEpoch.toString();
       await _saveLastResponse(
         SavedResponse(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          id: id,
           text: result.text,
           createdAt: DateTime.now(),
           type: ResponseType.ocr,
+          imagePath: await _frames.keep(frame, id),
         ),
       );
       _emit(state.copyWith(status: OcrStatus.success, text: result.text));

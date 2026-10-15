@@ -10,15 +10,14 @@ import 'package:seesay/core/accessibility/accessibility_audio_service.dart';
 import 'package:seesay/core/accessibility/haptic_service.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
 import 'package:seesay/core/permissions/permission_service.dart';
+import 'package:seesay/core/platform/background_access.dart';
+import 'package:seesay/features/backend/backend_cubit.dart';
 import 'package:seesay/features/glasses/presentation/connection_cubit.dart';
 import 'package:seesay/features/home/presentation/app_cubit.dart';
 import 'package:seesay/features/home/presentation/app_scope.dart';
-import 'package:seesay/features/events/presentation/events_cubit.dart';
 import 'package:seesay/features/shell/main_shell.dart';
 import 'package:seesay/features/ocr/presentation/ocr_cubit.dart';
 import 'package:seesay/features/settings/presentation/accessibility_cubit.dart';
-import 'package:seesay/features/settings/presentation/history_cubit.dart';
-import 'package:seesay/features/settings/presentation/history_page.dart';
 import 'package:seesay/features/settings/presentation/settings_page.dart';
 import 'package:seesay/features/vision/presentation/vision_cubit.dart';
 
@@ -45,7 +44,7 @@ class SeeSayApp extends StatelessWidget {
                 BlocProvider.value(value: getIt<VisionCubit>()),
                 BlocProvider.value(value: getIt<OcrCubit>()),
                 BlocProvider.value(value: getIt<AccessibilityCubit>()),
-                BlocProvider.value(value: getIt<EventsCubit>()),
+                BlocProvider.value(value: getIt<BackendCubit>()),
               ],
               child: FailureToaster(child: child ?? const SizedBox.shrink()),
             ),
@@ -66,18 +65,10 @@ GoRouter buildRouter() {
         pageBuilder: (context, state) => CupertinoPage(
           key: state.pageKey,
           child: SettingsPage(
+            standalone: true,
+            background: getIt<BackgroundAccess>(),
             onOpenSystemSettings: () =>
                 getIt<PermissionService>().openSettings(),
-          ),
-        ),
-      ),
-      GoRoute(
-        path: '/history',
-        pageBuilder: (context, state) => CupertinoPage(
-          key: state.pageKey,
-          child: BlocProvider(
-            create: (_) => getIt<HistoryCubit>()..load(),
-            child: const HistoryPage(),
           ),
         ),
       ),

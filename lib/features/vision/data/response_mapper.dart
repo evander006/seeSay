@@ -6,7 +6,9 @@ import 'package:seesay/features/vision/domain/vision_result.dart';
 abstract final class ResponseMapper {
   static AnalyzeResult toAnalyzeResult(AnalyzeFrameResponse dto) {
     if (dto.status != 'success' || dto.textResponse.trim().isEmpty) {
-      throw ApiException(SpeechMessages.apiUnavailable);
+      // On errors the server sends a phrase meant to be spoken; prefer it to a generic one.
+      final spoken = dto.textResponse.trim();
+      throw ApiException(spoken.isEmpty ? SpeechMessages.apiUnavailable : spoken);
     }
     return AnalyzeResult(
       text: dto.textResponse.trim(),
@@ -16,7 +18,12 @@ abstract final class ResponseMapper {
 
   static OcrResult toOcrResult(ReadTextResponse dto) {
     if (dto.status != 'success' || dto.rawText.trim().isEmpty) {
-      throw ApiException('Текст на изображении не найден.');
+      final spoken = dto.rawText.trim();
+      throw ApiException(
+        dto.status != 'success' && spoken.isNotEmpty
+            ? spoken
+            : 'Текст на изображении не найден.',
+      );
     }
     return OcrResult(text: dto.rawText.trim());
   }

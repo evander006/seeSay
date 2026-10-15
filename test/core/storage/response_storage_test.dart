@@ -25,8 +25,8 @@ void main() {
     }
   });
 
-  test('keeps the newest ten responses', () async {
-    for (var index = 0; index < 11; index++) {
+  test('keeps the newest fifty responses', () async {
+    for (var index = 0; index < 51; index++) {
       await storage.add(
         SavedResponse(
           id: '$index',
@@ -38,8 +38,8 @@ void main() {
     }
 
     final items = await storage.getAll();
-    expect(items, hasLength(10));
-    expect(items.first.id, '10');
+    expect(items, hasLength(ResponseHistory.maxItems));
+    expect(items.first.id, '50');
     expect(items.last.id, '1');
     expect(items.map((item) => item.id), isNot(contains('0')));
   });

@@ -8,6 +8,8 @@ class SavedResponse extends Equatable {
     required this.text,
     required this.createdAt,
     required this.type,
+    this.prompt,
+    this.imagePath,
   });
 
   final String id;
@@ -15,12 +17,20 @@ class SavedResponse extends Equatable {
   final DateTime createdAt;
   final ResponseType type;
 
+  /// What the user asked in the chat; null for the glasses button and quick actions.
+  final String? prompt;
+
+  /// The frame sent to the server, kept for the gallery.
+  final String? imagePath;
+
   Map<String, Object?> toJson() {
     return {
       'id': id,
       'text': text,
       'createdAt': createdAt.toIso8601String(),
       'type': type.name,
+      if (prompt != null) 'prompt': prompt,
+      if (imagePath != null) 'imagePath': imagePath,
     };
   }
 
@@ -32,15 +42,17 @@ class SavedResponse extends Equatable {
       type: json['type'] == ResponseType.ocr.name
           ? ResponseType.ocr
           : ResponseType.scene,
+      prompt: json['prompt'] as String?,
+      imagePath: json['imagePath'] as String?,
     );
   }
 
   @override
-  List<Object?> get props => [id, text, createdAt, type];
+  List<Object?> get props => [id, text, createdAt, type, prompt, imagePath];
 }
 
 abstract final class ResponseHistory {
-  static const maxItems = 10;
+  static const maxItems = 50;
 
   static List<SavedResponse> add(
     List<SavedResponse> current,

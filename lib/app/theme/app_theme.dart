@@ -11,6 +11,7 @@ abstract final class AppColors {
   static const circle = Color(0xFFF2F3F5);
   static const danger = Color(0xFFD32F2F);
   static const ok = Color(0xFF22A45D);
+  static const warning = Color(0xFFF2994A);
   static const text = ink;
 }
 

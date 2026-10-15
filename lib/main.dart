@@ -8,7 +8,8 @@ import 'package:seesay/core/logging/app_logger.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // Portrait is fixed in AndroidManifest: this engine may start without a screen,
+  // and platform calls that need an Activity would never answer.
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

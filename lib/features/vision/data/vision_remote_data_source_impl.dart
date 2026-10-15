@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:seesay/core/accessibility/speech_messages.dart';
 import 'package:seesay/core/errors/app_exception.dart';
 import 'package:seesay/core/network/api_client.dart';
 import 'package:seesay/core/network/retry_policy.dart';
@@ -71,18 +72,30 @@ class VisionRemoteDataSourceImpl implements VisionRemoteDataSource {
   AppException _mapDio(DioException error) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
+      case DioExceptionType.connectionError:
+      case DioExceptionType.unknown:
+        return NetworkException(SpeechMessages.serverUnreachable);
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.transformTimeout:
-      case DioExceptionType.connectionError:
-      case DioExceptionType.unknown:
-        return NetworkException(
-          'Нет подключения к интернету. Попробуйте ещё раз.',
-        );
+        // The server got the photo but is slow: asking again would only double the wait.
+        return ApiException('Сервер слишком долго думает. Попробуйте ещё раз.');
       case DioExceptionType.badResponse:
+        final data = error.response?.data;
+        final detail = data is Map ? data['detail'] : null;
+        if (detail is String && detail.trim().isNotEmpty) {
+          return ApiException(detail.trim());
+        }
+        final code = error.response?.statusCode;
+        return ApiException(
+          code == null
+              ? SpeechMessages.apiUnavailable
+              : 'Сервер ответил ошибкой $code.',
+        );
       case DioExceptionType.badCertificate:
+        return ApiException('У сервера неверный HTTPS-сертификат.');
       case DioExceptionType.cancel:
-        return ApiException('Сервис анализа временно недоступен.');
+        return ApiException(SpeechMessages.apiUnavailable);
     }
   }
 }

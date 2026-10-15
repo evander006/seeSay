@@ -4,8 +4,7 @@ abstract final class GlassesProtocol {
 
   static const connectGlasses = 'connectGlasses';
   static const disconnectGlasses = 'disconnectGlasses';
-  static const startCapture = 'startCapture';
-  static const stopCapture = 'stopCapture';
+  static const capturePhoto = 'capturePhoto';
   static const speak = 'speak';
   static const stopSpeaking = 'stopSpeaking';
   static const setSpeechRate = 'setSpeechRate';
@@ -14,21 +13,23 @@ abstract final class GlassesProtocol {
   static const isBluetoothEnabled = 'isBluetoothEnabled';
   static const haptic = 'haptic';
   static const beep = 'beep';
-  static const startBackgroundMonitoring = 'startBackgroundMonitoring';
-  static const stopBackgroundMonitoring = 'stopBackgroundMonitoring';
-  static const getBackgroundMonitoringStatus = 'getBackgroundMonitoringStatus';
-  static const enableMockMode = 'enableMockMode';
-  static const disableMockMode = 'disableMockMode';
-  static const triggerMockEvent = 'triggerMockEvent';
-  static const getPendingGlassesEvents = 'getPendingGlassesEvents';
-  static const acknowledgeGlassesEvent = 'acknowledgeGlassesEvent';
-  static const getRecentGlassesEvents = 'getRecentGlassesEvents';
+  static const isBackgroundUnrestricted = 'isBackgroundUnrestricted';
+  static const requestBackgroundUnrestricted = 'requestBackgroundUnrestricted';
 
   static const bleConnectionChanged = 'bleConnectionChanged';
   static const blePacketReceived = 'blePacketReceived';
   static const mediaButtonEvent = 'mediaButtonEvent';
   static const batteryChanged = 'batteryChanged';
-  static const glassesEvent = 'glassesEvent';
+  static const glassesButton = 'glassesButton';
+  static const voiceState = 'voiceState';
+  static const voiceCaptured = 'voiceCaptured';
+  static const glassesPhoto = 'glassesPhoto';
+
+  static const requestGlassesPhoto = 'requestGlassesPhoto';
+  static const playPitch = 'playPitch';
+  static const stopPitch = 'stopPitch';
+  static const diagLog = 'diagLog';
+  static const exportLog = 'exportLog';
 
   static const serviceUuid = '0000fa00-0000-1000-8000-00805f9b34fb';
   static const notifyCharacteristicUuid =

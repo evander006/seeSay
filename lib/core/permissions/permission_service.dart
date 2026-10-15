@@ -12,6 +12,8 @@ class PermissionService {
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.notification,
+      // Asked here, while the screen is open: photos are later taken in background.
+      Permission.camera,
     ].request();
     final bluetoothOk =
         _ok(statuses[Permission.bluetoothScan]) &&
@@ -33,22 +35,27 @@ class PermissionService {
     return true;
   }
 
+  /// Checks the camera permission and asks for it only when it is missing.
+  /// In background Android cannot show the dialog, so a missing permission is a failure.
   Future<bool> ensureCamera() async {
-    final status = await Permission.camera.request();
-    if (!_ok(status)) {
-      logger.warning('permission denied', action: 'camera');
-      return false;
+    try {
+      if (await Permission.camera.isGranted) return true;
+      final status = await Permission.camera.request();
+      if (_ok(status)) return true;
+    } on Object {
+      logger.warning('permission request failed', action: 'camera');
     }
-    return true;
+    logger.warning('permission denied', action: 'camera');
+    return false;
   }
 
-  Future<bool> ensureLocation() async {
-    final status = await Permission.locationWhenInUse.request();
-    if (!_ok(status)) {
-      logger.warning('permission denied', action: 'location');
+  /// Location is optional: it is used only if the user already allowed it.
+  Future<bool> hasLocation() async {
+    try {
+      return await Permission.locationWhenInUse.isGranted;
+    } on Object {
       return false;
     }
-    return true;
   }
 
   Future<void> openSettings() async {

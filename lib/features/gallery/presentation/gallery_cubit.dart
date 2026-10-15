@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:seesay/core/accessibility/accessibility_audio_queue.dart';
@@ -28,10 +30,13 @@ class GalleryState extends Equatable {
 
 class GalleryCubit extends Cubit<GalleryState> {
   GalleryCubit({required this._storage, required this._speakText})
-    : super(const GalleryState());
+    : super(const GalleryState()) {
+    _subscription = _storage.changes.listen((_) => unawaited(load()));
+  }
 
   final ResponseStorage _storage;
   final SpeakText _speakText;
+  late final StreamSubscription<void> _subscription;
 
   Future<void> load() async {
     final items = await _storage.getAll();
@@ -44,6 +49,12 @@ class GalleryCubit extends Cubit<GalleryState> {
 
   void closeDetail() {
     emit(state.copyWith(clearSelected: true));
+  }
+
+  @override
+  Future<void> close() async {
+    await _subscription.cancel();
+    return super.close();
   }
 
   Future<void> replay(SavedResponse item) {

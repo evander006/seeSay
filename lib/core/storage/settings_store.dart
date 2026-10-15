@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 abstract class SettingsStore {
@@ -22,6 +24,14 @@ abstract class SettingsStore {
   String get lastConnectionState;
 
   Future<void> setLastConnectionState(String value);
+
+  /// Server chosen in Settings; null means the build default.
+  String? get backendUrl;
+
+  Future<void> setBackendUrl(String value);
+
+  /// Stable random id of this installation, sent to the server as X-Device-Id.
+  Future<String> deviceId();
 }
 
 class SharedPrefsSettingsStore implements SettingsStore {
@@ -75,6 +85,30 @@ class SharedPrefsSettingsStore implements SettingsStore {
   Future<void> setLastConnectionState(String value) {
     return _prefs!.setString('last_connection_state', value);
   }
+
+  @override
+  String? get backendUrl => _prefs?.getString('backend_url');
+
+  @override
+  Future<void> setBackendUrl(String value) {
+    return _prefs!.setString('backend_url', value);
+  }
+
+  @override
+  Future<String> deviceId() async {
+    final saved = _prefs?.getString('device_id');
+    if (saved != null && saved.isNotEmpty) return saved;
+    final created = newDeviceId();
+    await _prefs!.setString('device_id', created);
+    return created;
+  }
+}
+
+/// `seesay-` + 16 random hex characters.
+String newDeviceId() {
+  final random = Random.secure();
+  final hex = List.generate(8, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'));
+  return 'seesay-${hex.join()}';
 }
 
 class MemorySettingsStore implements SettingsStore {
@@ -83,6 +117,7 @@ class MemorySettingsStore implements SettingsStore {
   bool _customTouchSpeech = true;
   String? _lastDeviceAddress;
   String _lastConnectionState = 'disconnected';
+  String? _backendUrl;
 
   @override
   Future<void> init() async {}
@@ -126,4 +161,17 @@ class MemorySettingsStore implements SettingsStore {
   Future<void> setLastConnectionState(String value) async {
     _lastConnectionState = value;
   }
+
+  @override
+  String? get backendUrl => _backendUrl;
+
+  @override
+  Future<void> setBackendUrl(String value) async {
+    _backendUrl = value;
+  }
+
+  final String _deviceId = newDeviceId();
+
+  @override
+  Future<String> deviceId() async => _deviceId;
 }

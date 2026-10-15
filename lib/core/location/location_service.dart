@@ -22,7 +22,7 @@ class GeolocatorLocationService implements LocationService {
   @override
   Future<GeoPoint?> currentPosition() async {
     try {
-      final allowed = await permissions.ensureLocation();
+      final allowed = await permissions.hasLocation();
       if (!allowed) return null;
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (!enabled) return null;

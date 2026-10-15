@@ -31,4 +31,35 @@ void main() {
       throwsA(isA<ApiException>()),
     );
   });
+
+  test('reads the server JSON with a fractional execution time', () {
+    // smart-glasses backend answers like this: execution_time_ms is a float.
+    final dto = AnalyzeFrameResponse.fromJson({
+      'status': 'success',
+      'text_response': 'Перед вами стол.',
+      'execution_time_ms': 780.5,
+      'spatial_cues': <Object>[],
+      'mode': 'general',
+    });
+    expect(dto.executionTimeMs, 781);
+    expect(ResponseMapper.toAnalyzeResult(dto).text, 'Перед вами стол.');
+  });
+
+  test('speaks the server error phrase instead of a generic one', () {
+    expect(
+      () => ResponseMapper.toAnalyzeResult(
+        const AnalyzeFrameResponse(
+          status: 'error',
+          textResponse: 'Время ожидания зрительной модели истекло.',
+        ),
+      ),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          'Время ожидания зрительной модели истекло.',
+        ),
+      ),
+    );
+  });
 }

@@ -1,30 +1,61 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:seesay/core/accessibility/accessibility_audio_queue.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
-import 'package:seesay/core/bluetooth/ble_packet.dart';
+import 'package:seesay/core/errors/failure_mapper.dart';
 import 'package:seesay/core/logging/app_logger.dart';
 import 'package:seesay/core/platform/glasses_channel.dart';
+import 'package:seesay/core/storage/frame_store.dart';
+import 'package:seesay/core/storage/saved_response.dart';
+import 'package:seesay/features/glasses/data/glasses_api.dart';
 import 'package:seesay/features/glasses/domain/glasses_repository.dart';
-import 'package:seesay/features/ocr/presentation/ocr_cubit.dart';
-import 'package:seesay/features/vision/presentation/vision_cubit.dart';
+import 'package:seesay/features/vision/domain/response_use_cases.dart';
 
+/// What the glasses buttons do (all over BLE, the phone can stay in a pocket):
+///
+/// * black ×1 + a spoken question → assistant with memory. The voice goes to the server; if the
+///   question is about what the user sees, the photo the glasses take right after the question
+///   is sent too (action `need_image`).
+/// * black ×2 → the glasses send a photo themselves → «what is in front of me».
+/// * red ×3 within 3 s → the competitors pitch at full volume (one or two presses only take
+///   the glasses' own photo/video, so a stray press does nothing here).
+/// * temple tap (play/pause) → stop speaking.
 class GlassesActionCoordinator {
   GlassesActionCoordinator({
     required this._glasses,
-    required this._vision,
-    required this._ocr,
-    required this._repeatLastResponse,
+    required this._channel,
+    required this._api,
+    required this._speakText,
+    required this._stopSpeech,
+    required this._saveLastResponse,
+    required this._frames,
     required this._logger,
   });
 
   final GlassesRepository _glasses;
-  final VisionCubit _vision;
-  final OcrCubit _ocr;
-  final RepeatLastResponse _repeatLastResponse;
+  final GlassesChannel _channel;
+  final GlassesApi _api;
+  final SpeakText _speakText;
+  final StopSpeech _stopSpeech;
+  final SaveLastResponse _saveLastResponse;
+  final FrameStore _frames;
   final AppLogger _logger;
 
+  static const _pitchPresses = 3;
+  static const _pitchWindow = Duration(seconds: 3);
+  static const _photoWait = Duration(seconds: 4);
+
   StreamSubscription<GlassesEvent>? _subscription;
-  DateTime? _lastPhoto;
+  final List<DateTime> _redPresses = [];
+  DateTime? _pitchStartedAt;
+  bool _pitchPlaying = false;
+
+  /// Photo the glasses take right after a question; completed by the next `voice` photo.
+  Completer<File?>? _voicePhoto;
+
+  /// Increases with every new request: an old answer must not be spoken over a newer one.
+  int _generation = 0;
 
   void start() {
     _subscription ??= _glasses.events.listen((event) {
@@ -33,46 +64,211 @@ class GlassesActionCoordinator {
   }
 
   Future<void> _onEvent(GlassesEvent event) async {
-    if (event is BlePacketReceived) {
-      switch (event.packet.type) {
-        case BleEventType.photoTrigger:
-          _logger.info('photo trigger', screen: 'glasses', action: 'ble');
-          await _photo();
-        case BleEventType.doubleTap:
-          await _repeatLastResponse();
-        case BleEventType.captureStarted:
-        case BleEventType.videoInitialization:
-        case BleEventType.recording:
-        case BleEventType.idle:
-        case BleEventType.unknown:
-          _logger.info(
-            'photo trigger',
-            screen: 'glasses',
-            action: event.packet.type.name,
-          );
+    try {
+      switch (event) {
+        case GlassesButtonPressed(button: 'red'):
+          _onRed();
+        case GlassesButtonPressed(button: 'black', :final kind):
+          _log('black button $kind');
+          if (!_pitchPlaying) await _stopSpeech();
+        case VoiceStateChanged(:final state, :final reason):
+          _log('voice $state${reason == null ? '' : ' ($reason)'}');
+        case VoiceCaptured():
+          await _onVoice(event);
+        case GlassesPhotoReceived():
+          await _onPhoto(event);
+        case MediaButtonReceived(action: MediaButtonAction.playPause):
+          _log('temple tap: stop');
+          await stopAll();
+        default:
+          break;
       }
-    } else if (event is MediaButtonReceived) {
-      _logger.info(
-        'photo trigger',
-        screen: 'glasses',
-        action: event.action.name,
-      );
-      if (event.action == MediaButtonAction.playPause) {
-        await _photo();
-      }
+    } on Object catch (error) {
+      _logger.error('glasses flow failed', screen: 'glasses', error: error);
     }
   }
 
-  Future<void> _photo() async {
-    final now = DateTime.now();
-    if (_lastPhoto != null &&
-        now.difference(_lastPhoto!) < const Duration(milliseconds: 800)) {
+  // ---- black ×1: voice question
+
+  Future<void> _onVoice(VoiceCaptured voice) async {
+    final generation = ++_generation;
+    _voicePhoto = Completer<File?>();
+    final watch = Stopwatch()..start();
+    _log(
+      'voice captured: ${voice.packets} packets, ${voice.durationMs} ms, '
+      'end: ${voice.reason}',
+    );
+    final GlassesReply reply;
+    try {
+      reply = await _api.voice(File(voice.path));
+    } on Object catch (error) {
+      await _fail('voice upload', error, generation);
       return;
     }
-    _lastPhoto = now;
-    if (_ocr.state.status == OcrStatus.capturing) return;
-    await _vision.analyzeWhatIsInFront();
+    _log(
+      'voice reply in ${watch.elapsedMilliseconds} ms (server ${reply.serverMs}): '
+      '${reply.action} «${reply.transcript}» → «${reply.text}»',
+    );
+    if (generation != _generation) return;
+    switch (reply.action) {
+      case 'pitch':
+        await playPitch(reason: 'voice «${reply.transcript}»');
+      case 'need_image':
+        await _answerWithVoicePhoto(reply.transcript, generation, watch);
+      default:
+        await _say(reply.text, generation);
+        if (reply.action == 'speak') {
+          await _remember(reply.transcript, reply.text, null);
+        }
+    }
   }
+
+  Future<void> _answerWithVoicePhoto(
+    String question,
+    int generation,
+    Stopwatch watch,
+  ) async {
+    var photo = await _voicePhoto?.future.timeout(
+      _photoWait,
+      onTimeout: () => null,
+    );
+    if (photo == null && generation == _generation) {
+      _log('no photo after the question, asking again');
+      _voicePhoto = Completer<File?>();
+      await _channel.requestGlassesPhoto(reason: 'voice');
+      photo = await _voicePhoto?.future.timeout(_photoWait, onTimeout: () => null);
+    }
+    if (generation != _generation) return;
+    if (photo == null) {
+      await _say('Не получилось сделать снимок. Попробуйте ещё раз.', generation);
+      return;
+    }
+    _log('photo for the question after ${watch.elapsedMilliseconds} ms');
+    await _frame(photo, question, generation);
+  }
+
+  // ---- photos (black ×2, after a question, or from the app)
+
+  Future<void> _onPhoto(GlassesPhotoReceived event) async {
+    final file = File(event.path);
+    _log('photo ${event.reason} after ${event.waitedMs} ms');
+    if (event.reason == 'voice') {
+      final waiting = _voicePhoto;
+      if (waiting != null && !waiting.isCompleted) waiting.complete(file);
+      return;
+    }
+    await _frame(file, null, ++_generation);
+  }
+
+  Future<void> _frame(File photo, String? question, int generation) async {
+    final watch = Stopwatch()..start();
+    final GlassesReply reply;
+    try {
+      reply = await _api.frame(photo, prompt: question);
+    } on Object catch (error) {
+      await _fail('frame upload', error, generation);
+      return;
+    }
+    _log(
+      'frame reply in ${watch.elapsedMilliseconds} ms (server ${reply.serverMs}): '
+      '«${reply.text}»',
+    );
+    if (generation != _generation) return;
+    await _say(reply.text, generation);
+    await _remember(
+      question == null || question.isEmpty ? 'Что передо мной?' : question,
+      reply.text,
+      photo,
+    );
+  }
+
+  /// «Снимок с очков» on the settings screen: same as black ×2.
+  Future<bool> requestFrame() => _channel.requestGlassesPhoto(reason: 'request');
+
+  // ---- red ×3: pitch
+
+  void _onRed() {
+    final now = DateTime.now();
+    _redPresses
+      ..add(now)
+      ..removeWhere((t) => now.difference(t) > _pitchWindow);
+    _log('red button (${_redPresses.length} in ${_pitchWindow.inSeconds} s)');
+    if (_redPresses.length >= _pitchPresses) {
+      _redPresses.clear();
+      unawaited(playPitch(reason: 'red ×3'));
+    }
+  }
+
+  Future<void> playPitch({String reason = 'app'}) async {
+    final started = _pitchStartedAt;
+    final now = DateTime.now();
+    if (_pitchPlaying ||
+        (started != null && now.difference(started) < const Duration(seconds: 5))) {
+      _log('pitch already playing ($reason)');
+      return;
+    }
+    _generation++;
+    _pitchStartedAt = now;
+    _pitchPlaying = true;
+    _log('pitch start ($reason)');
+    try {
+      await _stopSpeech();
+      final ok = await _channel.playPitch();
+      _log('pitch ${ok ? 'done' : 'failed'}');
+    } finally {
+      _pitchPlaying = false;
+    }
+  }
+
+  Future<void> stopAll() async {
+    _generation++;
+    if (_pitchPlaying) await _channel.stopPitch();
+    await _stopSpeech();
+  }
+
+  /// Sends the diagnostic log to the server; returns its name there.
+  Future<String> uploadLog() async {
+    final path = await _channel.exportLog();
+    if (path == null) throw StateError('Журнал не найден.');
+    final saved = await _api.uploadLog(File(path));
+    _log('log uploaded as $saved');
+    return saved;
+  }
+
+  // ---- helpers
+
+  Future<void> _say(String text, int generation) async {
+    if (text.isEmpty || generation != _generation) return;
+    await _speakText(
+      text,
+      kind: SpeechKind.response,
+      priority: SpeechPriority.high,
+      interrupt: true,
+    );
+  }
+
+  Future<void> _fail(String what, Object error, int generation) async {
+    final failure = FailureMapper.map(error);
+    _logger.error('$what failed', screen: 'glasses', error: error);
+    await _say(failure.message, generation);
+  }
+
+  Future<void> _remember(String question, String answer, File? photo) async {
+    if (answer.isEmpty) return;
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    await _saveLastResponse(
+      SavedResponse(
+        id: id,
+        text: answer,
+        createdAt: DateTime.now(),
+        type: ResponseType.scene,
+        prompt: question.isEmpty ? null : question,
+        imagePath: photo == null ? null : await _frames.keep(photo, id),
+      ),
+    );
+  }
+
+  void _log(String message) => _logger.info(message, screen: 'glasses');
 
   Future<void> dispose() async {
     await _subscription?.cancel();

@@ -1,10 +1,10 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:seesay/core/accessibility/accessibility_audio_queue.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
-import 'package:seesay/core/events/recorded_event.dart';
-import 'package:seesay/features/assistant/domain/ai_assistant_repository.dart';
-import 'package:seesay/features/events/domain/glasses_event_repository.dart';
+import 'package:seesay/core/storage/response_storage.dart';
+import 'package:seesay/core/storage/saved_response.dart';
 
 class ChatLine extends Equatable {
   const ChatLine({
@@ -12,100 +12,106 @@ class ChatLine extends Equatable {
     required this.fromUser,
     required this.text,
     required this.at,
-    this.simulated = false,
-    this.failed = false,
+    this.imagePath,
   });
 
   final String id;
   final bool fromUser;
   final String text;
   final DateTime at;
-  final bool simulated;
-  final bool failed;
+
+  /// Frame the answer was made from, shown as a small preview.
+  final String? imagePath;
 
   @override
-  List<Object?> get props => [id, fromUser, text, at, simulated, failed];
+  List<Object?> get props => [id, fromUser, text, at, imagePath];
 }
 
 class AssistantState extends Equatable {
   const AssistantState({
     this.messages = const [],
-    this.loading = false,
+    this.pending,
     this.error,
   });
 
   final List<ChatLine> messages;
-  final bool loading;
+
+  /// The question being answered right now.
+  final String? pending;
   final String? error;
 
-  AssistantState copyWith({
-    List<ChatLine>? messages,
-    bool? loading,
-    String? error,
-    bool clearError = false,
-  }) {
-    return AssistantState(
-      messages: messages ?? this.messages,
-      loading: loading ?? this.loading,
-      error: clearError ? null : error ?? this.error,
-    );
-  }
+  bool get loading => pending != null;
 
   @override
-  List<Object?> get props => [messages, loading, error];
+  List<Object?> get props => [messages, pending, error];
 }
 
+/// Chat over the saved answers. Every request goes through the camera and the server; the
+/// vision cubits save and speak the answer, and the chat redraws from storage.
 class AssistantCubit extends Cubit<AssistantState> {
   AssistantCubit({
-    required this._assistant,
-    required this._events,
-    required this._speakText,
+    required this._storage,
     required this._stopSpeech,
     required this._repeatLast,
+    required this._ask,
     required this._describe,
     required this._readText,
-  }) : super(const AssistantState());
-
-  final AiAssistantRepository _assistant;
-  final GlassesEventRepository _events;
-  final SpeakText _speakText;
-  final StopSpeech _stopSpeech;
-  final RepeatLastResponse _repeatLast;
-  final Future<AssistantReply> Function() _describe;
-  final Future<AssistantReply> Function() _readText;
-  String? _lastPrompt;
-
-  Future<void> load() async {
-    final events = await _events.recent();
-    final lines = events
-        .where(
-          (event) =>
-              event.text != null &&
-              (event.type == RecordedEventType.textRecognized ||
-                  event.type == RecordedEventType.sceneAnalysisReady),
-        )
-        .map(
-          (event) => ChatLine(
-            id: event.eventId,
-            fromUser: false,
-            text: event.text!,
-            at: event.timestamp,
-            simulated: event.simulated,
-          ),
-        )
-        .toList();
-    if (!isClosed) emit(state.copyWith(messages: lines, clearError: true));
+  }) : super(const AssistantState()) {
+    _subscription = _storage.changes.listen((_) => unawaited(load()));
   }
 
-  Future<void> send(String prompt) => _run(prompt, () => _assistant.reply(prompt));
+  final ResponseStorage _storage;
+  final StopSpeech _stopSpeech;
+  final RepeatLastResponse _repeatLast;
+  final Future<void> Function(String prompt) _ask;
+  final Future<void> Function() _describe;
+  final Future<void> Function() _readText;
+  late final StreamSubscription<void> _subscription;
+  String? _lastPrompt;
 
-  Future<void> describe() => _run('Опиши, что вокруг', _describe);
+  static const describePrompt = 'Что вокруг?';
+  static const readPrompt = 'Прочитай текст';
 
-  Future<void> readText() => _run('Прочитай текст', _readText);
+  Future<void> load() async {
+    final saved = await _storage.getAll();
+    final lines = <ChatLine>[];
+    for (final item in saved.reversed) {
+      lines
+        ..add(
+          ChatLine(
+            id: 'q-${item.id}',
+            fromUser: true,
+            text: item.prompt ??
+                (item.type == ResponseType.ocr ? readPrompt : describePrompt),
+            at: item.createdAt,
+          ),
+        )
+        ..add(
+          ChatLine(
+            id: 'a-${item.id}',
+            fromUser: false,
+            text: item.text,
+            at: item.createdAt,
+            imagePath: item.imagePath,
+          ),
+        );
+    }
+    if (!isClosed) {
+      emit(AssistantState(messages: lines, pending: state.pending, error: state.error));
+    }
+  }
+
+  Future<void> send(String prompt) => _run(prompt, () => _ask(prompt));
+
+  Future<void> describe() => _run(describePrompt, _describe);
+
+  Future<void> readText() => _run(readPrompt, _readText);
 
   Future<void> retry() async {
     final prompt = _lastPrompt;
     if (prompt == null) return;
+    if (prompt == describePrompt) return describe();
+    if (prompt == readPrompt) return readText();
     await send(prompt);
   }
 
@@ -113,43 +119,13 @@ class AssistantCubit extends Cubit<AssistantState> {
 
   Future<void> repeat() => _repeatLast();
 
-  Future<void> _run(
-    String prompt,
-    Future<AssistantReply> Function() action,
-  ) async {
+  Future<void> _run(String prompt, Future<void> Function() action) async {
+    if (state.loading) return;
     _lastPrompt = prompt;
-    final now = DateTime.now();
-    final user = ChatLine(
-      id: 'user-${now.microsecondsSinceEpoch}',
-      fromUser: true,
-      text: prompt,
-      at: now,
-    );
-    emit(
-      state.copyWith(
-        loading: true,
-        clearError: true,
-        messages: [...state.messages, user],
-      ),
-    );
+    emit(AssistantState(messages: state.messages, pending: prompt));
     try {
-      final reply = await action();
-      final line = ChatLine(
-        id: 'ai-${DateTime.now().microsecondsSinceEpoch}',
-        fromUser: false,
-        text: reply.text,
-        at: DateTime.now(),
-        simulated: reply.simulated,
-      );
-      if (!isClosed) {
-        emit(
-          state.copyWith(
-            loading: false,
-            messages: [...state.messages, line],
-          ),
-        );
-      }
-      await _speakText(reply.text, kind: SpeechKind.response);
+      await action();
+      if (!isClosed) emit(AssistantState(messages: state.messages));
     } on Object catch (error) {
       final text = '$error';
       const prefix = 'Bad state: ';
@@ -157,8 +133,15 @@ class AssistantCubit extends Cubit<AssistantState> {
           ? text.substring(prefix.length)
           : 'Не удалось получить ответ.';
       if (!isClosed) {
-        emit(state.copyWith(loading: false, error: message));
+        emit(AssistantState(messages: state.messages, error: message));
       }
     }
+    await load();
+  }
+
+  @override
+  Future<void> close() async {
+    await _subscription.cancel();
+    return super.close();
   }
 }

@@ -1,4 +1,3 @@
-import 'package:seesay/core/config/app_config.dart';
 import 'package:seesay/core/errors/app_exception.dart';
 import 'package:seesay/core/logging/app_logger.dart';
 import 'package:seesay/core/permissions/permission_service.dart';
@@ -10,23 +9,19 @@ class ConnectGlasses {
     required this._repository,
     required this._permissions,
     required this._settings,
-    required this._config,
     required this._logger,
   });
 
   final GlassesRepository _repository;
   final PermissionService _permissions;
   final SettingsStore _settings;
-  final AppConfig _config;
   final AppLogger _logger;
 
   Future<void> call() async {
-    if (!_config.useMockGlasses) {
-      final allowed = await _permissions.ensureGlassesLink();
-      if (!allowed) {
-        _logger.warning('permission denied', action: 'bluetooth');
-        throw PermissionException('Нет необходимого разрешения.');
-      }
+    final allowed = await _permissions.ensureGlassesLink();
+    if (!allowed) {
+      _logger.warning('permission denied', action: 'bluetooth');
+      throw PermissionException('Нет необходимого разрешения.');
     }
     final enabled = await _repository.isAdapterEnabled();
     if (!enabled) {

@@ -5,11 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seesay/core/accessibility/accessibility_audio_service.dart';
 import 'package:seesay/core/accessibility/speech_messages.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
-import 'package:seesay/core/accessibility/tts_engine.dart';
-import 'package:seesay/core/config/app_config.dart';
 import 'package:seesay/core/errors/app_exception.dart';
 import 'package:seesay/core/logging/app_logger.dart';
-import 'package:seesay/core/permissions/permission_service.dart';
 import 'package:seesay/core/platform/glasses_channel.dart';
 import 'package:seesay/core/storage/settings_store.dart';
 import 'package:seesay/features/glasses/domain/glasses_repository.dart';
@@ -52,9 +49,6 @@ class _Glasses implements GlassesRepository {
     _events.add(ConnectionChanged(_current));
   }
 
-  @override
-  Future<void> simulatePhotoTrigger() async {}
-
   Future<void> close() => _events.close();
 }
 
@@ -72,9 +66,8 @@ void main() {
       repository: glasses,
       connectGlasses: ConnectGlasses(
         repository: glasses,
-        permissions: PermissionService(logger: logger),
+        permissions: AllowAllPermissions(),
         settings: settings,
-        config: AppConfig.defaults,
         logger: logger,
       ),
       disconnectGlasses: DisconnectGlasses(glasses),

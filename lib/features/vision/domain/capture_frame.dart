@@ -1,16 +1,12 @@
 import 'dart:io';
 
 import 'package:seesay/core/camera/camera_service.dart';
-import 'package:seesay/core/camera/frame_compressor.dart';
 
 class CaptureFrame {
-  CaptureFrame({required this._camera, required this._compressor});
+  CaptureFrame({required this._camera});
 
   final CameraService _camera;
-  final FrameCompressor _compressor;
 
-  Future<File> call() async {
-    final raw = await _camera.capture();
-    return _compressor.compress(raw);
-  }
+  /// JPEG up to ~1080p, already sized and compressed by the native side.
+  Future<File> call() => _camera.capture();
 }

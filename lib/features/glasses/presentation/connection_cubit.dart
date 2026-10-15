@@ -19,12 +19,14 @@ class ConnectionViewState extends Equatable {
     this.message,
     this.deviceAddress,
     this.battery,
+    this.detail,
   });
 
   final ConnectionStatus status;
   final String? message;
   final String? deviceAddress;
   final int? battery;
+  final String? detail;
 
   ConnectionViewState copyWith({
     ConnectionStatus? status,
@@ -38,11 +40,12 @@ class ConnectionViewState extends Equatable {
       message: clearMessage ? null : message ?? this.message,
       deviceAddress: deviceAddress ?? this.deviceAddress,
       battery: battery ?? this.battery,
+      detail: clearMessage ? null : detail,
     );
   }
 
   @override
-  List<Object?> get props => [status, message, deviceAddress, battery];
+  List<Object?> get props => [status, message, deviceAddress, battery, detail];
 }
 
 class ConnectionCubit extends Cubit<ConnectionViewState> {
@@ -54,6 +57,7 @@ class ConnectionCubit extends Cubit<ConnectionViewState> {
     required this._feedback,
     required this._settings,
     required this._logger,
+    this._onConnected,
   }) : super(const ConnectionViewState()) {
     _subscription = _repository.events.listen((event) {
       unawaited(_onEvent(event));
@@ -67,6 +71,9 @@ class ConnectionCubit extends Cubit<ConnectionViewState> {
   final SystemFeedback _feedback;
   final SettingsStore _settings;
   final AppLogger _logger;
+
+  /// Runs after each successful link, e.g. to ask for unrestricted background work.
+  final Future<void> Function()? _onConnected;
   late final StreamSubscription<GlassesEvent> _subscription;
 
   Future<void> connect() async {
@@ -118,8 +125,6 @@ class ConnectionCubit extends Cubit<ConnectionViewState> {
     }
   }
 
-  Future<void> simulatePhotoTrigger() => _repository.simulatePhotoTrigger();
-
   Future<void> _onEvent(GlassesEvent event) async {
     if (event is ConnectionChanged) {
       final snapshot = event.snapshot;
@@ -129,15 +134,19 @@ class ConnectionCubit extends Cubit<ConnectionViewState> {
           message: snapshot.message,
           deviceAddress: snapshot.deviceAddress ?? state.deviceAddress,
           battery: snapshot.battery ?? state.battery,
+          detail: snapshot.detail,
         ),
       );
       await _settings.setLastConnectionState(snapshot.status.name);
-      if (snapshot.deviceAddress != null) {
+      // Remember only glasses that really linked; a failed candidate must not be retried forever.
+      if (snapshot.status == ConnectionStatus.connected &&
+          snapshot.deviceAddress != null) {
         await _settings.setLastDeviceAddress(snapshot.deviceAddress);
       }
       if (snapshot.status == ConnectionStatus.connected) {
         await _feedback.haptic(HapticKind.connection);
         await _feedback.beep(HapticKind.connection);
+        await _onConnected?.call();
       } else if (snapshot.status == ConnectionStatus.error) {
         await _feedback.haptic(HapticKind.error);
         await _speakText(

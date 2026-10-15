@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:seesay/app/theme/app_theme.dart';
 import 'package:seesay/app/theme/screen_header.dart';
+import 'package:seesay/app/theme/ui.dart';
 import 'package:seesay/core/storage/saved_response.dart';
 import 'package:seesay/features/gallery/presentation/gallery_cubit.dart';
 
@@ -12,135 +15,128 @@ class GalleryPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<GalleryCubit>().state;
     final selected = state.selected;
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const ScreenHeader(
-              subtitle: 'Снимки',
+    return PopScope(
+      canPop: selected == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) context.read<GalleryCubit>().closeDetail();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(
+          bottom: false,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeIn,
+            child: selected != null
+                ? _Detail(key: ValueKey(selected.id), item: selected)
+                : _Grid(key: const ValueKey('grid'), items: state.items),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Grid extends StatelessWidget {
+  const _Grid({required this.items, super.key});
+
+  final List<SavedResponse> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          sliver: SliverToBoxAdapter(
+            child: PageTitle(
               title: 'Галерея',
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+              subtitle: items.isEmpty ? null : 'Снимков: ${items.length}',
             ),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 360),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, animation) {
-                  final offset = Tween<Offset>(
-                    begin: const Offset(0.08, 0),
-                    end: Offset.zero,
-                  ).animate(animation);
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(position: offset, child: child),
-                  );
-                },
-                child: selected != null
-                    ? _Detail(key: ValueKey(selected.id), item: selected)
-                    : state.items.isEmpty
-                  ? const KeyedSubtree(
-                      key: ValueKey('gallery-empty'),
-                      child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: AppColors.card,
-                            borderRadius: BorderRadius.all(Radius.circular(24)),
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: AppColors.circle,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: SizedBox(
-                                    width: 64,
-                                    height: 64,
-                                    child: Icon(
-                                      Icons.photo_library_outlined,
-                                      color: AppColors.ink,
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(height: 12),
-                                Text(
-                                  'Снимков пока нет. Кадр появится здесь только после реального сохранения.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 16, height: 1.35),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+          ),
+        ),
+        if (items.isEmpty)
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.photo_library_outlined, size: 44, color: AppColors.muted),
+                    SizedBox(height: 12),
+                    Text(
+                      'Снимков пока нет. Каждый кадр, на который пришёл ответ, появится здесь вместе с ответом.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.muted, fontSize: 15, height: 1.4),
                     ),
-                  )
-                  : ListView.separated(
-                      key: const ValueKey('gallery-list'),
-                      padding: const EdgeInsets.all(16),
-                      itemCount: state.items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final item = state.items[index];
-                        return Material(
-                          color: AppColors.card,
-                          borderRadius: BorderRadius.circular(20),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(20),
-                            onTap: () =>
-                                context.read<GalleryCubit>().open(item),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  const CircleAvatar(
-                                    backgroundColor: AppColors.circle,
-                                    child: Icon(
-                                      Icons.image_outlined,
-                                      color: AppColors.ink,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.text,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        Text(
-                                          _stamp(item),
-                                          style: const TextStyle(
-                                            color: AppColors.muted,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(Icons.chevron_right),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  ],
+                ),
               ),
             ),
-          ],
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            sliver: SliverGrid.builder(
+              itemCount: items.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.78,
+              ),
+              itemBuilder: (context, index) => _Tile(item: items[index]),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _Tile extends StatelessWidget {
+  const _Tile({required this.item});
+
+  final SavedResponse item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '${_kind(item)}, ${clock(item.createdAt)}. ${item.text}',
+      child: Material(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => context.read<GalleryCubit>().open(item),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _Frame(path: item.imagePath, cacheWidth: 400)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14, height: 1.3),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${clock(item.createdAt)} · ${_kind(item)}',
+                      style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -155,59 +151,88 @@ class _Detail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: Gaps.page,
       children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.circular(24),
+        PageTitle(
+          title: _kind(item),
+          subtitle: _date(item.createdAt),
+          trailing: [
+            CircleIconButton(
+              icon: Icons.close_rounded,
+              tooltip: 'Назад к галерее',
+              onTap: () => context.read<GalleryCubit>().closeDetail(),
+            ),
+          ],
+        ),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: AspectRatio(
+            aspectRatio: 3 / 4,
+            child: _Frame(path: item.imagePath, cacheWidth: 1080),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Файл изображения не сохранён. Ниже только текст ответа.',
-                  style: TextStyle(color: AppColors.muted),
-                ),
-                const SizedBox(height: 12),
+        ),
+        Gaps.between,
+        SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (item.prompt != null) ...[
                 Text(
-                  item.text,
-                  style: const TextStyle(fontSize: 20, height: 1.35),
+                  item.prompt!,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 14),
                 ),
-                const SizedBox(height: 8),
-                Text(_stamp(item)),
+                const SizedBox(height: 6),
               ],
-            ),
+              Text(item.text, style: const TextStyle(fontSize: 18, height: 1.4)),
+            ],
           ),
         ),
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.accent,
-            minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26),
-            ),
-          ),
-          onPressed: () => context.read<GalleryCubit>().replay(item),
-          icon: const Icon(Icons.volume_up_rounded),
-          label: const Text('Прослушать'),
-        ),
-        TextButton(
-          onPressed: () => context.read<GalleryCubit>().closeDetail(),
-          child: const Text('Назад к списку'),
+        Gaps.between,
+        PrimaryButton(
+          id: 'gallery-replay',
+          label: 'Прослушать',
+          icon: Icons.volume_up_rounded,
+          onTap: () => context.read<GalleryCubit>().replay(item),
         ),
       ],
     );
   }
 }
 
-String _stamp(SavedResponse item) {
-  final local = item.createdAt.toLocal();
-  final clock =
-      '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-  final kind = item.type == ResponseType.ocr ? 'текст' : 'сцена';
-  return '$clock · $kind';
+class _Frame extends StatelessWidget {
+  const _Frame({required this.path, required this.cacheWidth});
+
+  final String? path;
+  final int cacheWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    const placeholder = ColoredBox(
+      color: AppColors.circle,
+      child: Center(
+        child: Icon(Icons.image_not_supported_outlined, color: AppColors.muted),
+      ),
+    );
+    final file = path;
+    if (file == null) return placeholder;
+    return Image.file(
+      File(file),
+      fit: BoxFit.cover,
+      cacheWidth: cacheWidth,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => placeholder,
+    );
+  }
+}
+
+String _kind(SavedResponse item) =>
+    item.type == ResponseType.ocr ? 'Текст' : 'Сцена';
+
+String _date(DateTime time) {
+  final local = time.toLocal();
+  const months = [
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+  ];
+  return '${local.day} ${months[local.month - 1]}, ${clock(local)}';
 }

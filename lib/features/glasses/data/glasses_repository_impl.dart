@@ -49,9 +49,6 @@ class GlassesRepositoryImpl implements GlassesRepository {
   @override
   Future<void> disconnect() => _channel.disconnect();
 
-  @override
-  Future<void> simulatePhotoTrigger() => _channel.startCapture();
-
   void _onRaw(Map<String, dynamic> raw) {
     switch (raw['event']) {
       case GlassesProtocol.bleConnectionChanged:
@@ -59,6 +56,7 @@ class GlassesRepositoryImpl implements GlassesRepository {
           status: connectionStatusFromWire(raw['state'] as String?),
           message: raw['message'] as String?,
           deviceAddress: raw['deviceAddress'] as String?,
+          detail: raw['detail'] as String?,
         );
         if (snapshot.status == ConnectionStatus.connected) {
           _logger.info('BLE connected', action: 'connect');
@@ -76,6 +74,37 @@ class GlassesRepositoryImpl implements GlassesRepository {
       case GlassesProtocol.mediaButtonEvent:
         _events.add(
           MediaButtonReceived(mediaButtonFromWire(raw['action'] as String?)),
+        );
+      case GlassesProtocol.glassesButton:
+        _events.add(
+          GlassesButtonPressed(
+            raw['button'] as String? ?? '',
+            raw['kind'] as String? ?? 'press',
+          ),
+        );
+      case GlassesProtocol.voiceState:
+        _events.add(
+          VoiceStateChanged(
+            raw['state'] as String? ?? '',
+            raw['reason'] as String?,
+          ),
+        );
+      case GlassesProtocol.voiceCaptured:
+        _events.add(
+          VoiceCaptured(
+            path: raw['path'] as String,
+            packets: (raw['packets'] as num?)?.toInt() ?? 0,
+            durationMs: (raw['durationMs'] as num?)?.toInt() ?? 0,
+            reason: raw['reason'] as String? ?? '',
+          ),
+        );
+      case GlassesProtocol.glassesPhoto:
+        _events.add(
+          GlassesPhotoReceived(
+            raw['path'] as String,
+            raw['reason'] as String? ?? 'glasses',
+            (raw['waitedMs'] as num?)?.toInt() ?? -1,
+          ),
         );
       case GlassesProtocol.batteryChanged:
         final level = raw['level'];

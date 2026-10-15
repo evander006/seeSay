@@ -1,71 +1,82 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seesay/core/accessibility/accessibility_audio_service.dart';
 import 'package:seesay/core/accessibility/speech_use_cases.dart';
-import 'package:seesay/core/accessibility/tts_engine.dart';
 import 'package:seesay/core/logging/app_logger.dart';
 import 'package:seesay/core/storage/response_storage.dart';
-import 'package:seesay/features/assistant/domain/ai_assistant_repository.dart';
+import 'package:seesay/core/storage/saved_response.dart';
 import 'package:seesay/features/assistant/presentation/assistant_cubit.dart';
-import 'package:seesay/features/events/domain/glasses_event_repository.dart';
 
-class _ToggleAssistant implements AiAssistantRepository {
-  _ToggleAssistant(this.fail);
-
-  bool fail;
-
-  @override
-  Future<AssistantReply> reply(String prompt) async {
-    if (fail) throw StateError('сеть');
-    return AssistantReply(
-      text: 'Демонстрационный ответ. Вы написали: $prompt',
-      simulated: true,
-    );
-  }
-}
+import '../../support/fakes.dart';
 
 void main() {
-  test('mock reply is marked simulated', () async {
-    const assistant = MockAiAssistantRepository();
-    final reply = await assistant.reply('  привет  ');
-    expect(reply.simulated, isTrue);
-    expect(reply.text, 'Демонстрационный ответ. Вы написали: привет');
+  late MemoryResponseStorage storage;
+  late AssistantCubit cubit;
+  var fail = false;
+  final asked = <String>[];
+
+  Future<void> answer(String? prompt, ResponseType type) async {
+    if (fail) throw StateError('Сервер не отвечает.');
+    if (prompt != null) asked.add(prompt);
+    final now = DateTime.now();
+    await storage.add(
+      SavedResponse(
+        id: now.microsecondsSinceEpoch.toString(),
+        text: 'Ответ на ${prompt ?? type.name}',
+        createdAt: now,
+        type: type,
+        prompt: prompt,
+      ),
+    );
+  }
+
+  setUp(() {
+    fail = false;
+    asked.clear();
+    storage = MemoryResponseStorage();
+    final audio = AccessibilityAudioService(
+      engine: MockTtsEngine(),
+      logger: AppLogger(),
+    );
+    cubit = AssistantCubit(
+      storage: storage,
+      stopSpeech: StopSpeech(audio),
+      repeatLast: RepeatLastResponse(storage: storage, audio: audio),
+      ask: (prompt) => answer(prompt, ResponseType.scene),
+      describe: () => answer(null, ResponseType.scene),
+      readText: () => answer(null, ResponseType.ocr),
+    );
   });
 
-  test('chat shows loading, error, and a successful retry', () async {
-    final engine = MockTtsEngine();
-    final audio = AccessibilityAudioService(engine: engine, logger: AppLogger());
-    final assistant = _ToggleAssistant(true);
-    final cubit = AssistantCubit(
-      assistant: assistant,
-      events: MemoryGlassesEventRepository(),
-      speakText: SpeakText(audio),
-      stopSpeech: StopSpeech(audio),
-      repeatLast: RepeatLastResponse(
-        storage: MemoryResponseStorage(),
-        audio: audio,
-      ),
-      describe: () async => const AssistantReply(text: 'сцена', simulated: true),
-      readText: () async => const AssistantReply(text: 'текст', simulated: true),
-    );
+  tearDown(() => cubit.close());
 
-    final pending = cubit.send('вопрос');
-    expect(cubit.state.loading, isTrue);
-    await pending;
+  test('a question goes to the server and shows as a pair of lines', () async {
+    await cubit.send('Что на табличке?');
+
+    expect(asked, ['Что на табличке?']);
     expect(cubit.state.loading, isFalse);
-    expect(cubit.state.error, contains('сеть'));
+    expect(cubit.state.messages.map((line) => line.text), [
+      'Что на табличке?',
+      'Ответ на Что на табличке?',
+    ]);
+  });
 
-    assistant.fail = false;
+  test('glasses answers saved elsewhere appear in the chat', () async {
+    await answer(null, ResponseType.ocr);
+    await pumpEventQueue();
+
+    expect(cubit.state.messages.first.text, AssistantCubit.readPrompt);
+    expect(cubit.state.messages.last.fromUser, isFalse);
+  });
+
+  test('an error is shown and retry repeats the question', () async {
+    fail = true;
+    await cubit.send('Где выход?');
+    expect(cubit.state.error, 'Сервер не отвечает.');
+    expect(cubit.state.messages, isEmpty);
+
+    fail = false;
     await cubit.retry();
     expect(cubit.state.error, isNull);
-    expect(
-      cubit.state.messages.last.text,
-      'Демонстрационный ответ. Вы написали: вопрос',
-    );
-    expect(cubit.state.messages.last.simulated, isTrue);
-    expect(engine.spoken, ['Демонстрационный ответ. Вы написали: вопрос']);
-
-    await cubit.stop();
-    expect(engine.stopCount, greaterThan(0));
-    await cubit.close();
+    expect(asked, ['Где выход?']);
   });
 }

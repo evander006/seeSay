@@ -15,13 +15,22 @@ object GlassesRuntime {
 
     var tts: AndroidTtsEngine? = null
 
+    /** Protocol state of the linked glasses; set by the foreground service. */
+    @Volatile
+    var session: com.example.seesay.ble.GlassesSession? = null
+
     private val main = Handler(Looper.getMainLooper())
 
     fun emit(event: Map<String, Any?>) {
         main.post { eventSink?.success(event) }
     }
 
-    fun emitConnection(state: String, message: String? = null, address: String? = null) {
+    fun emitConnection(
+        state: String,
+        message: String? = null,
+        address: String? = null,
+        detail: String? = null,
+    ) {
         connectionState = state
         val payload = linkedMapOf<String, Any?>(
             "event" to "bleConnectionChanged",
@@ -29,6 +38,7 @@ object GlassesRuntime {
         )
         if (message != null) payload["message"] = message
         if (address != null) payload["deviceAddress"] = address
+        if (detail != null) payload["detail"] = detail
         emit(payload)
     }
 

@@ -6,7 +6,7 @@ abstract final class FailureMapper {
   static Failure map(Object error) {
     final exception = error is AppException
         ? error
-        : ApiException(SpeechMessages.apiUnavailable);
+        : ApiException(SpeechMessages.unexpectedError);
     final message = switch (exception) {
       NetworkException() => SpeechMessages.networkUnavailable,
       BluetoothException(:final message) =>

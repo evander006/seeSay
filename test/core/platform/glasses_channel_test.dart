@@ -7,12 +7,8 @@ void main() {
 
   test('missing Android channel fails closed', () async {
     final channel = GlassesChannel();
-    expect(await channel.recentGlassesEvents(), isEmpty);
-    expect(await channel.pendingGlassesEvents(), isEmpty);
-    expect(await channel.backgroundMonitoringStatus(), isFalse);
-    expect(
-      channel.startBackgroundMonitoring(),
-      throwsA(isA<BluetoothException>()),
-    );
+    expect(await channel.isBackgroundUnrestricted(), isFalse);
+    expect(channel.capturePhoto(), throwsA(isA<CameraException>()));
+    expect(channel.connect(null), throwsA(isA<BluetoothException>()));
   });
 }

@@ -10,6 +10,4 @@ abstract class GlassesRepository {
   Future<void> connect({String? deviceAddress});
 
   Future<void> disconnect();
-
-  Future<void> simulatePhotoTrigger();
 }

@@ -16,12 +16,16 @@ class GlassesSnapshot {
     this.message,
     this.deviceAddress,
     this.battery,
+    this.detail,
   });
 
   final ConnectionStatus status;
   final String? message;
   final String? deviceAddress;
   final int? battery;
+
+  /// Progress or failure report of the glasses search, shown on screen (not spoken).
+  final String? detail;
 }
 
 sealed class GlassesEvent {
@@ -52,6 +56,48 @@ class BatteryChanged extends GlassesEvent {
   final int level;
 }
 
+/// A glasses button over BLE: red (photo button, once per press) or black (assistant).
+class GlassesButtonPressed extends GlassesEvent {
+  const GlassesButtonPressed(this.button, this.kind);
+
+  final String button;
+
+  /// `press` or `double` (black pressed twice: the glasses send a photo themselves).
+  final String kind;
+}
+
+/// The glasses listen to the question (`listening`) or gave up without voice (`idle`).
+class VoiceStateChanged extends GlassesEvent {
+  const VoiceStateChanged(this.state, this.reason);
+
+  final String state;
+  final String? reason;
+}
+
+/// The question recorded by the glasses mic: Opus packets `[u16 length][packet]…` in [path].
+class VoiceCaptured extends GlassesEvent {
+  const VoiceCaptured({
+    required this.path,
+    required this.packets,
+    required this.durationMs,
+    required this.reason,
+  });
+
+  final String path;
+  final int packets;
+  final int durationMs;
+  final String reason;
+}
+
+/// A JPEG from the glasses camera that came over BLE. [reason]: voice, recognition, request.
+class GlassesPhotoReceived extends GlassesEvent {
+  const GlassesPhotoReceived(this.path, this.reason, this.waitedMs);
+
+  final String path;
+  final String reason;
+  final int waitedMs;
+}
+
 class GlassesChannel {
   GlassesChannel({MethodChannel? methods, EventChannel? events})
     : _methods = methods ?? const MethodChannel(GlassesProtocol.methodChannel),
@@ -78,9 +124,55 @@ class GlassesChannel {
 
   Future<void> disconnect() => _invoke(GlassesProtocol.disconnectGlasses);
 
-  Future<void> startCapture() => _invoke(GlassesProtocol.startCapture);
+  /// Takes a photo with the phone's back camera; returns the JPEG path.
+  Future<String> capturePhoto() async {
+    try {
+      final path = await _methods.invokeMethod<String>(
+        GlassesProtocol.capturePhoto,
+      );
+      if (path == null || path.isEmpty) {
+        throw CameraException('Камера не вернула снимок.');
+      }
+      return path;
+    } on MissingPluginException {
+      throw CameraException('Камера недоступна.');
+    } on PlatformException catch (error) {
+      throw CameraException(error.message ?? 'Камера недоступна.');
+    }
+  }
 
-  Future<void> stopCapture() => _invoke(GlassesProtocol.stopCapture);
+  /// Asks the glasses for a photo over BLE; it arrives as [GlassesPhotoReceived].
+  Future<bool> requestGlassesPhoto({String reason = 'request'}) async {
+    final value = await _methods.invokeMethod<bool>(
+      GlassesProtocol.requestGlassesPhoto,
+      {'reason': reason},
+    );
+    return value ?? false;
+  }
+
+  /// Plays the competitors pitch at full volume; completes when it ends.
+  Future<bool> playPitch() async {
+    final value = await _methods.invokeMethod<bool>(GlassesProtocol.playPitch);
+    return value ?? false;
+  }
+
+  Future<void> stopPitch() => _invoke(GlassesProtocol.stopPitch);
+
+  /// Line for the app's diagnostic log file (Android side keeps ~2 MB).
+  Future<void> diagLog(String level, String message) async {
+    try {
+      await _methods.invokeMethod<void>(GlassesProtocol.diagLog, {
+        'level': level,
+        'message': message,
+      });
+    } on Object {
+      // Logging must never break the app.
+    }
+  }
+
+  /// Path of the whole diagnostic log glued into one file.
+  Future<String?> exportLog() =>
+      _methods.invokeMethod<String>(GlassesProtocol.exportLog);
 
   Future<String> connectionState() async {
     final value = await _methods.invokeMethod<String>(
@@ -118,18 +210,11 @@ class GlassesChannel {
     return _invoke(GlassesProtocol.setLanguage, {'language': language});
   }
 
-  Future<void> startBackgroundMonitoring() {
-    return _invoke(GlassesProtocol.startBackgroundMonitoring);
-  }
-
-  Future<void> stopBackgroundMonitoring() {
-    return _invoke(GlassesProtocol.stopBackgroundMonitoring);
-  }
-
-  Future<bool> backgroundMonitoringStatus() async {
+  /// True when Android battery optimisation does not restrict SeeSay.
+  Future<bool> isBackgroundUnrestricted() async {
     try {
       final value = await _methods.invokeMethod<bool>(
-        GlassesProtocol.getBackgroundMonitoringStatus,
+        GlassesProtocol.isBackgroundUnrestricted,
       );
       return value ?? false;
     } on MissingPluginException {
@@ -139,41 +224,9 @@ class GlassesChannel {
     }
   }
 
-  Future<void> enableMockMode() => _invoke(GlassesProtocol.enableMockMode);
-
-  Future<void> disableMockMode() => _invoke(GlassesProtocol.disableMockMode);
-
-  Future<void> triggerMockEvent(String type) {
-    return _invoke(GlassesProtocol.triggerMockEvent, {'type': type});
-  }
-
-  Future<List<Map<String, dynamic>>> pendingGlassesEvents() {
-    return _eventList(GlassesProtocol.getPendingGlassesEvents);
-  }
-
-  Future<List<Map<String, dynamic>>> recentGlassesEvents() {
-    return _eventList(GlassesProtocol.getRecentGlassesEvents);
-  }
-
-  Future<void> acknowledgeGlassesEvent(String eventId) {
-    return _invoke(GlassesProtocol.acknowledgeGlassesEvent, {
-      'eventId': eventId,
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> _eventList(String method) async {
-    try {
-      final value = await _methods.invokeMethod<List<Object?>>(method);
-      if (value == null) return const [];
-      return value
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
-    } on MissingPluginException {
-      return const [];
-    } on PlatformException {
-      return const [];
-    }
+  /// Opens the system dialog that lets SeeSay always run in the background.
+  Future<void> requestBackgroundUnrestricted() {
+    return _invoke(GlassesProtocol.requestBackgroundUnrestricted);
   }
 
   Future<void> _invoke(String method, [Object? arguments]) async {

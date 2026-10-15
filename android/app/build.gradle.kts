@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.seesay"
-    compileSdk = 37
+    compileSdkVersion("android-37.0")  // fresh SDK ships platform 37 as "37.0"; AGP 9.1 looks up "android-37"
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -13,7 +13,8 @@ class AnalyzeFrameResponse {
     return AnalyzeFrameResponse(
       status: json['status'] as String? ?? '',
       textResponse: json['text_response'] as String? ?? '',
-      executionTimeMs: json['execution_time_ms'] as int?,
+      // The server may send 780.5 as well as 780.
+      executionTimeMs: (json['execution_time_ms'] as num?)?.round(),
     );
   }
 }

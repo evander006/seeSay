@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:hive/hive.dart';
 import 'package:seesay/core/storage/saved_response.dart';
 
 abstract class ResponseStorage {
   Future<void> init();
+
+  /// Fires after every add or clear, so the chat and gallery refresh by themselves.
+  Stream<void> get changes;
 
   Future<List<SavedResponse>> getAll();
 
@@ -16,6 +21,10 @@ class HiveResponseStorage implements ResponseStorage {
 
   final String boxName;
   Box<dynamic>? _box;
+  final _changes = StreamController<void>.broadcast();
+
+  @override
+  Stream<void> get changes => _changes.stream;
 
   @override
   Future<void> init() async {
@@ -42,16 +51,22 @@ class HiveResponseStorage implements ResponseStorage {
     if (box == null) return;
     final next = ResponseHistory.add(await getAll(), response);
     await box.put('items', next.map((item) => item.toJson()).toList());
+    _changes.add(null);
   }
 
   @override
   Future<void> clear() async {
     await _box?.delete('items');
+    _changes.add(null);
   }
 }
 
 class MemoryResponseStorage implements ResponseStorage {
   final List<SavedResponse> _items = [];
+  final _changes = StreamController<void>.broadcast();
+
+  @override
+  Stream<void> get changes => _changes.stream;
 
   @override
   Future<void> init() async {}
@@ -67,10 +82,12 @@ class MemoryResponseStorage implements ResponseStorage {
     _items
       ..clear()
       ..addAll(next);
+    _changes.add(null);
   }
 
   @override
   Future<void> clear() async {
     _items.clear();
+    _changes.add(null);
   }
 }
