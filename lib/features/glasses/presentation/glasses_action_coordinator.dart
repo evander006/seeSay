@@ -15,9 +15,9 @@ import 'package:seesay/features/vision/domain/response_use_cases.dart';
 
 /// What the glasses buttons do (all over BLE, the phone can stay in a pocket):
 ///
-/// * black ×1 + a spoken question → assistant with memory. The voice goes to the server; if the
-///   question is about what the user sees, the photo the glasses take right after the question
-///   is sent too (action `need_image`).
+/// * black ×1 + a spoken question → assistant with memory. The answer is streamed and spoken
+///   sentence by sentence; if the question is about what the user sees (`need_image`, known from
+///   the first lines of the answer) the glasses take a photo then — never during speech.
 /// * black ×2 → the competitors pitch at full volume, at once (the glasses report a double press
 ///   as one event, 120A 02; the photo they take with it is ignored).
 /// * red ×3 within 10 s → the same pitch, as a backup (the glasses take one photo at a time,
@@ -48,6 +48,10 @@ class GlassesActionCoordinator {
 
   /// GPS is looked up while the user speaks, so it is ready when the question ends.
   Future<GeoPoint?>? _position;
+  GeoPoint? _lastPoint;
+
+  /// Black ×2: completed when the glasses' photo (and its shutter sound) is done.
+  Completer<void>? _recognitionShot;
 
   static const _pitchPresses = 3;
   // The glasses take one photo at a time (~3 s each), so 3 quick presses arrive over ~6 s.
@@ -59,7 +63,7 @@ class GlassesActionCoordinator {
   DateTime? _pitchStartedAt;
   bool _pitchPlaying = false;
 
-  /// Photo the glasses take right after a question; completed by the next `voice` photo.
+  /// Photo asked for a visual question; completed by the next `voice` photo.
   Completer<File?>? _voicePhoto;
 
   /// Increases with every new request: an old answer must not be spoken over a newer one.
@@ -69,6 +73,8 @@ class GlassesActionCoordinator {
     _subscription ??= _glasses.events.listen((event) {
       unawaited(_onEvent(event));
     });
+    // A first GPS fix in advance, so even the first «где я» does not wait for it.
+    _refreshPosition();
   }
 
   Future<void> _onEvent(GlassesEvent event) async {
@@ -78,13 +84,13 @@ class GlassesActionCoordinator {
           _onRed();
         case GlassesButtonPressed(button: 'black', kind: 'double'):
           _log('black button double');
-          unawaited(playPitch(reason: 'black ×2'));
+          unawaited(_pitchAfterShutter());
         case GlassesButtonPressed(button: 'black', :final kind):
           _log('black button $kind');
           if (!_pitchPlaying) await _stopSpeech();
         case VoiceStateChanged(:final state, :final reason):
           _log('voice $state${reason == null ? '' : ' ($reason)'}');
-          if (state == 'listening') _position = _location.currentPosition();
+          if (state == 'listening') _refreshPosition();
         case VoiceCaptured():
           await _onVoice(event);
         case GlassesPhotoReceived():
@@ -100,45 +106,84 @@ class GlassesActionCoordinator {
     }
   }
 
-  // ---- black ×1: voice question
+  // ---- GPS: looked up while the user speaks, never waited for after the question
+
+  void _refreshPosition() {
+    _position = _location.currentPosition().then((point) {
+      if (point != null) _lastPoint = point;
+      return point;
+    });
+  }
+
+  Future<GeoPoint?> _quickPosition() async {
+    final pending = _position;
+    if (pending == null) return _lastPoint;
+    return pending.timeout(
+      const Duration(milliseconds: 300),
+      onTimeout: () => _lastPoint,
+    );
+  }
+
+  // ---- black ×1: voice question, the answer streamed sentence by sentence
 
   Future<void> _onVoice(VoiceCaptured voice) async {
     final generation = ++_generation;
-    _voicePhoto = Completer<File?>();
     final watch = Stopwatch()..start();
     _log(
       'voice captured: ${voice.packets} packets, ${voice.durationMs} ms, '
       'end: ${voice.reason}',
     );
-    final point = await (_position ?? _location.currentPosition()).timeout(
-      const Duration(milliseconds: 1500),
-      onTimeout: () => null,
-    );
-    _position = null;
-    final GlassesReply reply;
+    final point = await _quickPosition();
+    var action = 'speak';
+    var transcript = '';
+    double? destinationLat;
+    double? destinationLon;
+    Future<File?>? photo;
+    final spoken = <String>[];
     try {
-      reply = await _api.voice(
+      final stream = _api.voiceStream(
         File(voice.path),
         latitude: point?.latitude,
         longitude: point?.longitude,
       );
+      await for (final piece in stream) {
+        if (generation != _generation) return;
+        switch (piece.type) {
+          case 'meta':
+            action = piece.action ?? 'speak';
+            transcript = piece.transcript ?? '';
+            destinationLat = piece.destinationLat;
+            destinationLon = piece.destinationLon;
+            _log('voice meta in ${watch.elapsedMilliseconds} ms: $action «$transcript»');
+            // The question is about what the user sees: the photo is asked for right now, while
+            // nothing is being said, so the shutter sound never cuts into an answer.
+            if (action == 'need_image') photo = _takePhoto();
+            if (action == 'pitch') unawaited(playPitch(reason: 'voice «$transcript»'));
+          case 'text':
+            final text = piece.text ?? '';
+            if (spoken.isEmpty) _log('first words in ${watch.elapsedMilliseconds} ms');
+            await _speakChunk(text, first: spoken.isEmpty, generation: generation);
+            spoken.add(text);
+          case 'done':
+            _log('voice done in ${watch.elapsedMilliseconds} ms, server ${piece.serverMs} ms ${piece.timings}');
+        }
+      }
     } on Object catch (error) {
-      await _fail('voice upload', error, generation);
+      if (spoken.isEmpty) {
+        await _fail('voice stream', error, generation);
+      } else {
+        _logger.error('voice stream broke', screen: 'glasses', error: error);
+      }
       return;
     }
-    _log(
-      'voice reply in ${watch.elapsedMilliseconds} ms (server ${reply.serverMs}): '
-      '${reply.action} «${reply.transcript}» → «${reply.text}»',
-    );
     if (generation != _generation) return;
-    switch (reply.action) {
-      case 'pitch':
-        await playPitch(reason: 'voice «${reply.transcript}»');
+    final answer = spoken.join(' ');
+    switch (action) {
       case 'need_image':
-        await _answerWithVoicePhoto(reply.transcript, generation, watch);
+        await _answerWithPhoto(photo, transcript, generation, watch);
       case 'navigate':
-        final lat = reply.destinationLat;
-        final lon = reply.destinationLon;
+        final lat = destinationLat;
+        final lon = destinationLon;
         if (lat != null && lon != null) {
           final opened = await _channel.openRoute(
             lat: lat,
@@ -148,31 +193,32 @@ class GlassesActionCoordinator {
           );
           _log('route in Yandex Maps: ${opened ? 'opened' : 'not opened'}');
         }
-        await _say(reply.text, generation);
-        await _remember(reply.transcript, reply.text, null);
-      default:
-        await _say(reply.text, generation);
-        if (reply.action == 'speak') {
-          await _remember(reply.transcript, reply.text, null);
-        }
+        await _remember(transcript, answer, null);
+      case 'speak':
+        await _remember(transcript, answer, null);
     }
   }
 
-  Future<void> _answerWithVoicePhoto(
+  /// Asks the glasses for a photo (~2 s over BLE) and waits for it; one retry.
+  Future<File?> _takePhoto() async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final waiting = _voicePhoto = Completer<File?>();
+      final asked = await _channel.requestGlassesPhoto(reason: 'voice');
+      if (!asked) return null;
+      final photo = await waiting.future.timeout(_photoWait, onTimeout: () => null);
+      if (photo != null) return photo;
+      _log('no photo from the glasses, asking again');
+    }
+    return null;
+  }
+
+  Future<void> _answerWithPhoto(
+    Future<File?>? pending,
     String question,
     int generation,
     Stopwatch watch,
   ) async {
-    var photo = await _voicePhoto?.future.timeout(
-      _photoWait,
-      onTimeout: () => null,
-    );
-    if (photo == null && generation == _generation) {
-      _log('no photo after the question, asking again');
-      _voicePhoto = Completer<File?>();
-      await _channel.requestGlassesPhoto(reason: 'voice');
-      photo = await _voicePhoto?.future.timeout(_photoWait, onTimeout: () => null);
-    }
+    final photo = await (pending ?? _takePhoto());
     if (generation != _generation) return;
     if (photo == null) {
       await _say('Не получилось сделать снимок. Попробуйте ещё раз.', generation);
@@ -182,7 +228,7 @@ class GlassesActionCoordinator {
     await _frame(photo, question, generation);
   }
 
-  // ---- photos (black ×2, after a question, or from the app)
+  // ---- photos (after a visual question, black ×2, or from the app)
 
   Future<void> _onPhoto(GlassesPhotoReceived event) async {
     final file = File(event.path);
@@ -192,31 +238,58 @@ class GlassesActionCoordinator {
       if (waiting != null && !waiting.isCompleted) waiting.complete(file);
       return;
     }
-    // Black ×2 starts the pitch; the photo the glasses take with it is not needed.
-    if (event.reason == 'recognition') return;
+    if (event.reason == 'recognition') {
+      // Black ×2: the photo means the glasses' shutter sound is over, the pitch may start.
+      final shot = _recognitionShot;
+      if (shot != null && !shot.isCompleted) shot.complete();
+      return;
+    }
     await _frame(file, null, ++_generation);
   }
 
   Future<void> _frame(File photo, String? question, int generation) async {
     final watch = Stopwatch()..start();
-    final GlassesReply reply;
+    final spoken = <String>[];
     try {
-      reply = await _api.frame(photo, prompt: question);
+      await for (final piece in _api.frameStream(photo, prompt: question)) {
+        if (generation != _generation) return;
+        if (piece.type == 'text') {
+          final text = piece.text ?? '';
+          if (spoken.isEmpty) _log('frame first words in ${watch.elapsedMilliseconds} ms');
+          await _speakChunk(text, first: spoken.isEmpty, generation: generation);
+          spoken.add(text);
+        } else if (piece.type == 'done') {
+          _log('frame done in ${watch.elapsedMilliseconds} ms, server ${piece.serverMs} ms ${piece.timings}');
+        }
+      }
     } on Object catch (error) {
-      await _fail('frame upload', error, generation);
+      if (spoken.isEmpty) await _fail('frame stream', error, generation);
       return;
     }
-    _log(
-      'frame reply in ${watch.elapsedMilliseconds} ms (server ${reply.serverMs}): '
-      '«${reply.text}»',
-    );
     if (generation != _generation) return;
-    await _say(reply.text, generation);
     await _remember(
       question == null || question.isEmpty ? 'Что передо мной?' : question,
-      reply.text,
+      spoken.join(' '),
       photo,
     );
+  }
+
+  /// One sentence of a streamed answer straight into the Android speech queue: the first one
+  /// replaces whatever is being said, the next ones follow without a pause.
+  Future<void> _speakChunk(
+    String text, {
+    required bool first,
+    required int generation,
+  }) async {
+    if (text.isEmpty || generation != _generation) return;
+    await _channel.speakChunk(text, flush: first);
+  }
+
+  /// Black ×2: the glasses take a photo with a shutter sound; the pitch starts once it is over.
+  Future<void> _pitchAfterShutter() async {
+    final shot = _recognitionShot = Completer<void>();
+    await shot.future.timeout(const Duration(milliseconds: 1600), onTimeout: () {});
+    await playPitch(reason: 'black ×2');
   }
 
   /// «Снимок с очков» on the settings screen: same as black ×2.

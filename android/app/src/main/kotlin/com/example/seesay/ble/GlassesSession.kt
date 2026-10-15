@@ -245,8 +245,8 @@ class GlassesSession(
                 "reason" to reason,
             ),
         )
-        // In case the question is about what the user sees: the photo arrives while the server listens.
-        if (linked) main.postDelayed({ requestPhoto("voice") }, 150)
+        // No photo here: its shutter sound would cut into the answer. Flutter asks for one only
+        // when the server says the question is about what the user sees.
     }
 
     private fun justEnded() = SystemClock.elapsedRealtime() - endedAt < AFTER_END_IGNORE_MS

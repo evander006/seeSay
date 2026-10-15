@@ -55,6 +55,13 @@ object GlassesChannels {
                         engineTts.speak(text, rate, language, result)
                     }
                 }
+                "speakChunk" -> {
+                    GlassesRuntime.tts?.speakChunk(
+                        call.argument<String>("text") ?: "",
+                        call.argument<Boolean>("flush") ?: false,
+                    )
+                    result.success(null)
+                }
                 "stopSpeaking" -> {
                     GlassesRuntime.tts?.stop()
                     result.success(null)

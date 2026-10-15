@@ -174,6 +174,12 @@ class GlassesChannel {
   Future<String?> exportLog() =>
       _methods.invokeMethod<String>(GlassesProtocol.exportLog);
 
+  /// One sentence of a streamed answer; [flush] replaces what is being said, otherwise it is
+  /// queued right after it in the Android speech engine (no gap between sentences).
+  Future<void> speakChunk(String text, {required bool flush}) {
+    return _invoke(GlassesProtocol.speakChunk, {'text': text, 'flush': flush});
+  }
+
   /// Walking route in Yandex Maps; false when Android did not let it open.
   Future<bool> openRoute({
     required double lat,

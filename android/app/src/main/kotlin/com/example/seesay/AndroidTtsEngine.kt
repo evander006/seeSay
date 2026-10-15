@@ -79,6 +79,22 @@ class AndroidTtsEngine(context: android.content.Context) : TextToSpeech.OnInitLi
         }
     }
 
+    /** A sentence of a streamed answer: [flush] replaces current speech, else QUEUE_ADD (no gap). */
+    fun speakChunk(text: String, flush: Boolean) {
+        main.post {
+            if (!ready || text.isBlank()) return@post
+            if (flush) {
+                pending?.result?.success(null)
+                pending = null
+            }
+            applyVoice()
+            val id = "chunk-" + UUID.randomUUID().toString()
+            val params = Bundle()
+            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, id)
+            tts.speak(text, if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, params, id)
+        }
+    }
+
     fun speakLocally(text: String) {
         main.post {
             if (!ready || text.isBlank()) return@post
